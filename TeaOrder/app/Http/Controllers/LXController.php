@@ -32,13 +32,13 @@ class LXController extends \Illuminate\Routing\Controller
         ]);
 
         if ($validator->fails()) {
-            return $this->error('参数验证失败', 422, $validator->errors()->toArray());
+            return $this->error('参数验证失败', 422, $validator->errors()->toArray(), 422);
         }
 
         // 检查手机号是否已存在
         $existingCustomer = Customer::where('phone', $request->phone)->first();
         if ($existingCustomer) {
-            return $this->error('该手机号已存在', 4001);
+            return $this->error('该手机号已存在', 4001, [], 400);
         }
 
         // 创建顾客（默认为guest普通顾客）
@@ -71,9 +71,14 @@ class LXController extends \Illuminate\Routing\Controller
      */
     public function sendVerifyEmail(Request $request, int $id): JsonResponse
     {
+        // 调试：检查PHP配置
+        \Illuminate\Support\Facades\Log::info('PHP Version: ' . PHP_VERSION);
+        \Illuminate\Support\Facades\Log::info('Loaded php.ini: ' . php_ini_loaded_file());
+        \Illuminate\Support\Facades\Log::info('Redis extension loaded: ' . (extension_loaded('redis') ? 'YES' : 'NO'));
+        
         $customer = Customer::find($id);
         if (!$customer) {
-            return $this->error('顾客不存在', 404);
+            return $this->error('顾客不存在', 404, [], 404);
         }
 
         $validator = Validator::make($request->all(), [
@@ -88,7 +93,7 @@ class LXController extends \Illuminate\Routing\Controller
 
         // 校验：必须以@qq.com结尾
         if (!str_ends_with($email, '@qq.com')) {
-            return $this->error('邮箱格式错误，仅支持QQ邮箱', 4003);
+            return $this->error('邮箱格式错误，仅支持QQ邮箱', 4003, [], 400);
         }
 
         // 校验：该邮箱未被其他已验证会员绑定
@@ -97,7 +102,7 @@ class LXController extends \Illuminate\Routing\Controller
             ->where('id', '!=', $id)
             ->first();
         if ($existing) {
-            return $this->error('该邮箱已被其他会员绑定', 4005);
+            return $this->error('该邮箱已被其他会员绑定', 4005, [], 400);
         }
 
         $codeKey = self::VERIFY_CODE_PREFIX . $id;
@@ -137,7 +142,7 @@ class LXController extends \Illuminate\Routing\Controller
             Redis::del($codeKey);
             Redis::del($limitKey);
 
-            return $this->error('邮件发送失败，请稍后重试', 500, ['error' => $e->getMessage()]);
+            return $this->error('邮件发送失败，请稍后重试', 500, ['error' => $e->getMessage()], 500);
         }
     }
 
@@ -174,12 +179,12 @@ class LXController extends \Illuminate\Routing\Controller
 
         // 校验验证码是否存在
         if (!$cachedCode) {
-            return $this->error('验证码已过期，请重新获取', 4002);
+            return $this->error('验证码已过期，请重新获取', 4002, [], 400);
         }
 
         // 校验验证码是否正确
         if ($cachedCode !== $code) {
-            return $this->error('验证码错误或已过期', 4002);
+            return $this->error('验证码错误或已过期', 4002, [], 400);
         }
 
         // ✅ 验证通过，立即删除Redis（用完即失效）
@@ -210,16 +215,26 @@ class LXController extends \Illuminate\Routing\Controller
 
     // ==================== 4. 查看顾客详情 ====================
     /**
-     * GET /api/customers/{id} — 查看顾客详情
+     * GET /api/customers — 查看顾客详情（通过手机号查询）
      */
-    public function show(int $id): JsonResponse
+    public function show(Request $request): JsonResponse
     {
+        $validator = Validator::make($request->all(), [
+            'phone' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->error('请输入手机号', 422, $validator->errors()->toArray(), 422);
+        }
+
+        $phone = $request->input('phone');
+
         $customer = Customer::with(['firstStore', 'orders' => function ($query) {
             $query->latest()->take(5)->with('items');
-        }])->find($id);
+        }])->where('phone', $phone)->first();
 
         if (!$customer) {
-            return $this->error('顾客不存在', 404);
+            return $this->error('顾客不存在', 404, [], 404);
         }
 
         // 格式化最近订单
@@ -311,13 +326,22 @@ class LXController extends \Illuminate\Routing\Controller
 
     /**
      * 错误响应
+     * 
+     * @param string $message 错误信息
+     * @param int $businessCode 业务错误码 (4001, 4002, 4003, 4004, 4005)
+     * @param array $data 额外数据
+     * @param int $httpStatus HTTP状态码 (默认400)
      */
-    private function error(string $message, int $code = 400, array $data = []): JsonResponse
-    {
+    private function error(
+        string $message, 
+        int $businessCode = 4001, 
+        array $data = [], 
+        int $httpStatus = 400
+    ): JsonResponse {
         return response()->json([
-            'code' => $code,
+            'code' => $businessCode,
             'message' => $message,
             'data' => $data ?: null,
-        ]);
+        ], $httpStatus);
     }
 }
