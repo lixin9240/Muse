@@ -113,8 +113,8 @@ return new class extends Migration
             $table->foreign('order_id')
                 ->references('id')->on('orders')
                 ->onDelete('cascade');
-            $table->foreign('product_spec_id')
-                ->references('id')->on('product_specs')
+            $table->foreign('product_sku_id')
+                ->references('id')->on('product_skus')
                 ->onDelete('restrict');
         });
     }
@@ -122,7 +122,7 @@ return new class extends Migration
     public function down(): void
     {
         $tables = [
-            'order_items' => ['order_id', 'product_spec_id'],
+            'order_items' => ['order_id', 'product_sku_id'],
             'orders' => ['store_id', 'customer_id', 'activity_id', 'user_id'],
             'activities' => ['store_id'],
             'customers' => ['first_store_id'],
