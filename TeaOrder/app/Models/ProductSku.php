@@ -21,10 +21,6 @@ class ProductSku extends Model
         'status'
     ];
 
-    protected $casts = [
-        'spec_ids' => 'array',
-    ];
-
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
