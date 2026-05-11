@@ -254,7 +254,6 @@ class FmyController extends Controller
                 'member_discount_rate' => $memberDiscountRate,
                 'status' => 'pending',
                 'remark' => $remark,
-                'user_id' => $user->id,
             ]);
 
             foreach ($orderItems as $item) {
