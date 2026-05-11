@@ -1,16 +1,37 @@
 <?php
+// app/Models/StockChangeLog.php
+// 库存变动记录模型
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class StockChangeLog extends Model
 {
     use HasFactory;
 
-    #[Fillable(['ingredient_id', 'store_id', 'type', 'quantity', 'stock_before', 'stock_after', 'order_id', 'product_id', 'status', 'submitter_id', 'approver_id', 'approved_at', 'reason', 'attachment_url'])]
+    protected $fillable = [
+        'ingredient_id',
+        'store_id',
+        'type',
+        'quantity',
+        'stock_before',
+        'stock_after',
+        'order_id',
+        'product_id',
+        'status',
+        'submitter_id',
+        'approver_id',
+        'approved_at',
+        'reason',
+        'attachment_url'
+    ];
+
+    protected $casts = [
+        'approved_at' => 'datetime',
+    ];
 
     public function material(): BelongsTo
     {
@@ -25,6 +46,11 @@ class StockChangeLog extends Model
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
+    }
+
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(Product::class);
     }
 
     public function submitter(): BelongsTo

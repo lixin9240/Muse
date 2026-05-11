@@ -34,7 +34,6 @@ return new class extends Migration
             //更新状态枚举值：pending(审核中), making(制作中), completed(已完成), cancelled(已取消)
             $table->enum('status', ['pending', 'making', 'completed', 'cancelled'])->default('pending')->comment('订单状态');
             $table->text('remark')->nullable()->comment('备注');
-            $table->unsignedBigInteger('user_id')->comment('用户id');
             $table->timestamp('completed_at')->nullable()->comment('完成时间');
             $table->timestamps();
             $table->softDeletes();

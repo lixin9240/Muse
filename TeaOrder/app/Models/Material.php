@@ -1,9 +1,11 @@
 <?php
+// app/Models/Material.php
+// 原料模型
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -11,7 +13,14 @@ class Material extends Model
 {
     use HasFactory;
 
-    #[Fillable(['store_id', 'name', 'unit', 'stock', 'warning_stock', 'status'])]
+    protected $fillable = [
+        'store_id',
+        'name',
+        'unit',
+        'stock',
+        'warning_stock',
+        'status'
+    ];
 
     public function store(): BelongsTo
     {

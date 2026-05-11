@@ -1,11 +1,12 @@
 <?php
+// app/Models/Employee.php
+// 员工模型
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 
@@ -13,8 +14,18 @@ class Employee extends Authenticatable implements JWTSubject
 {
     use HasFactory;
 
-    #[Fillable(['store_id', 'name', 'phone', 'password', 'role', 'status'])]
-    #[Hidden(['password'])]
+    protected $fillable = [
+        'store_id',
+        'name',
+        'phone',
+        'password',
+        'role',
+        'status'
+    ];
+
+    protected $hidden = [
+        'password'
+    ];
 
     protected function casts(): array
     {
@@ -36,5 +47,15 @@ class Employee extends Authenticatable implements JWTSubject
     public function store(): BelongsTo
     {
         return $this->belongsTo(Store::class);
+    }
+
+    public function submittedStockLogs(): HasMany
+    {
+        return $this->hasMany(StockChangeLog::class, 'submitter_id');
+    }
+
+    public function approvedStockLogs(): HasMany
+    {
+        return $this->hasMany(StockChangeLog::class, 'approver_id');
     }
 }

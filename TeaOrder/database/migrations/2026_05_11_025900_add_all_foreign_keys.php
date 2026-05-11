@@ -103,9 +103,6 @@ return new class extends Migration
             $table->foreign('activity_id')
                 ->references('id')->on('activities')
                 ->onDelete('set null');
-            $table->foreign('user_id')
-                ->references('id')->on('users')
-                ->onDelete('cascade');
         });
 
         // ========== 订单明细 ==========
@@ -123,7 +120,7 @@ return new class extends Migration
     {
         $tables = [
             'order_items' => ['order_id', 'product_sku_id'],
-            'orders' => ['store_id', 'customer_id', 'activity_id', 'user_id'],
+            'orders' => ['store_id', 'customer_id', 'activity_id'],
             'activities' => ['store_id'],
             'customers' => ['first_store_id'],
             'stock_change_logs' => ['ingredient_id', 'store_id', 'order_id', 'product_id', 'submitter_id', 'approver_id'],
