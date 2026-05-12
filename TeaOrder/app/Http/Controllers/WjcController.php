@@ -298,7 +298,7 @@ class WjcController
         ]);
     }
 
-    //会员消费统计
+    //会员消费统计（管理员）
     
     public function members(): JsonResponse
     {
