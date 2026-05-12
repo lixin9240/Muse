@@ -2,37 +2,72 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\{Category, Customer, Order, OrderItem, Product, ProductMaterial, ProductSpec};
+use App\Models\{Category, Customer, Material, Order, OrderItem, Product, ProductMaterial, ProductSpec};
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\{Cache, DB, Validator, Redis};
 use Tymon\JWTAuth\Facades\JWTAuth;
 
 class WjcController
 {
-    //查看饮品列表（点单用）
-
+    /**
+     * 5.1 GET /api/products - 查看饮品列表（点单用）
+     * 
+     * 优化特性：
+     * - Redis缓存5分钟，提升性能
+     * - 库存状态显示（正常/低库存/售罄）
+     * - 支持按分类筛选或分组展示
+     */
     public function index(): JsonResponse
     {
+        $categoryId = request()->input('category_id');
+        $keyword = request()->input('keyword');
+        $groupByCategory = request()->boolean('grouped', false);
+        
+        // 生成缓存Key（根据参数动态生成）
+        $cacheParams = http_build_query([
+            'category_id' => $categoryId,
+            'keyword' => $keyword,
+            'grouped' => $groupByCategory
+        ]);
+        $cacheKey = "products:menu:" . md5($cacheParams);
+        
+        // 从Redis缓存读取（5分钟过期）
+        $cachedData = Cache::get($cacheKey);
+        if ($cachedData !== null) {
+            return response()->json([
+                'code' => 200,
+                'data' => $cachedData,
+                '_cached' => true  // 调试用：标识来自缓存
+            ]);
+        }
+        
+        // 构建查询
         $query = Product::with(['category', 'specs'])
             ->where('status', 'active')
             ->orderBy('sort_order');
-
-        if ($categoryId = request()->input('category_id')) {
+        
+        if ($categoryId) {
             $query->where('category_id', $categoryId);
         }
-
-        if ($keyword = request()->input('keyword')) {
+        
+        if ($keyword) {
             $query->where('name', 'like', "%{$keyword}%");
         }
-
-        $products = $query->get()->map(function ($product) {
+        
+        $products = $query->get();
+        
+        // 处理产品数据（含库存状态）
+        $productList = $products->map(function ($product) {
+            $stockStatus = $this->checkProductStockStatus($product->id);
+            
             return [
                 'id' => $product->id,
                 'name' => $product->name,
                 'category' => $product->category->name,
                 'image_url' => $product->image_url,
                 'description' => $product->description,
+                'stock_status' => $stockStatus['status'],      // available | low_stock | out_of_stock
+                'stock_info' => $stockStatus['info'],           // 库存详情信息
                 'specs' => $product->specs->map(function ($spec) use ($product) {
                     return [
                         'id' => $spec->id,
@@ -42,11 +77,120 @@ class WjcController
                 })
             ];
         });
-
+        
+        // 根据参数决定返回格式
+        if ($groupByCategory && !$categoryId) {
+            // 按分类分组展示
+            $responseData = [
+                'categories' => $this->groupProductsByCategory($productList),
+                'total_count' => $productList->count()
+            ];
+        } else {
+            // 平铺展示（默认）
+            $responseData = $productList;
+        }
+        
+        // 存入Redis缓存（5分钟=300秒）
+        Cache::put($cacheKey, $responseData, 300);
+        
         return response()->json([
             'code' => 200,
-            'data' => $products
+            'data' => $responseData,
+            '_cached' => false
         ]);
+    }
+    
+    /**
+     * 检查产品库存状态
+     * 
+     * 逻辑：
+     * 1. 查找该产品所有SKU的配方
+     * 2. 聚合每个原料的最大需求量（取所有规格中最耗原料的那个）
+     * 3. 计算瓶颈原料（能制作的份数最少）
+     * 4. 返回库存状态：available / low_stock / out_of_stock
+     */
+    private function checkProductStockStatus(int $productId): array
+    {
+        // 方式1：通过SKU关联查询（推荐，符合当前数据库设计）
+        $skuIds = ProductSpec::where('product_id', $productId)->pluck('id');
+        
+        if ($skuIds->isEmpty()) {
+            return ['status' => 'available', 'info' => null];
+        }
+        
+        // 查询该产品所有SKU的配方，并按原料ID分组聚合最大用量
+        $materialAggregates = ProductMaterial::with('material')
+            ->whereIn('product_sku_id', $skuIds)
+            ->whereHas('material', fn($q) => $q->where('materials.status', 'active'))
+            ->get()
+            ->groupBy('material_id')
+            ->map(function ($group) {
+                $material = $group->first()->material;
+                // 取该原料在所有规格中的最大需求量（最坏情况）
+                $maxQuantityNeeded = $group->max('quantity');
+                
+                return [
+                    'material' => $material,
+                    'max_quantity_needed' => $maxQuantityNeeded,
+                    'can_make_count' => $maxQuantityNeeded > 0 
+                        ? floor($material->stock / $maxQuantityNeeded)
+                        : 9999
+                ];
+            });
+        
+        if ($materialAggregates->isEmpty()) {
+            return ['status' => 'available', 'info' => null];
+        }
+        
+        // 找出瓶颈原料（可制作份数最少）
+        $bottleneck = $materialAggregates->sortBy('can_make_count')->first();
+        $bottleneckMaterial = $bottleneck['material'];
+        $canMakeCount = $bottleneck['can_make_count'];
+        
+        // 判断库存状态
+        if ($canMakeCount <= 0) {
+            return [
+                'status' => 'out_of_stock',
+                'info' => [
+                    'shortage_material' => $bottleneckMaterial->name,
+                    'message' => "{$bottleneckMaterial->name}已耗尽（剩余{$bottleneckMaterial->stock}{$bottleneckMaterial->unit}）"
+                ]
+            ];
+        } elseif ($canMakeCount <= 10) {  // 少于10份视为低库存
+            return [
+                'status' => 'low_stock',
+                'info' => [
+                    'shortage_material' => $bottleneckMaterial->name,
+                    'remaining_cups' => $canMakeCount,
+                    'message' => "仅剩约{$canMakeCount}份（{$bottleneckMaterial->name}不足）"
+                ]
+            ];
+        } else {
+            return ['status' => 'available', 'info' => null];
+        }
+    }
+    
+    /**
+     * 按分类分组产品
+     */
+    private function groupProductsByCategory($products): array
+    {
+        $grouped = [];
+        
+        foreach ($products as $product) {
+            $categoryName = $product['category'];
+            if (!isset($grouped[$categoryName])) {
+                $grouped[$categoryName] = [
+                    'name' => $categoryName,
+                    'count' => 0,
+                    'products' => []
+                ];
+            }
+            $grouped[$categoryName]['count']++;
+            $grouped[$categoryName]['products'][] = $product;
+        }
+        
+        return array_values($grouped);
     }
 
     //添加饮品（管理员）
