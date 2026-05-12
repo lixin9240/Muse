@@ -9,14 +9,8 @@ use Tymon\JWTAuth\Facades\JWTAuth;
 
 class WjcController
 {
-    /**
-     * 5.1 GET /api/products - 查看饮品列表（点单用）
-     * 
-     * 优化特性：
-     * - Redis缓存5分钟，提升性能
-     * - 库存状态显示（正常/低库存/售罄）
-     * - 支持按分类筛选或分组展示
-     */
+    //查看饮品列表（点单用）
+
     public function index(): JsonResponse
     {
         $categoryId = request()->input('category_id');
@@ -100,15 +94,8 @@ class WjcController
         ]);
     }
     
-    /**
-     * 检查产品库存状态
-     * 
-     * 逻辑：
-     * 1. 查找该产品所有SKU的配方
-     * 2. 聚合每个原料的最大需求量（取所有规格中最耗原料的那个）
-     * 3. 计算瓶颈原料（能制作的份数最少）
-     * 4. 返回库存状态：available / low_stock / out_of_stock
-     */
+    //检查产品库存状态
+
     private function checkProductStockStatus(int $productId): array
     {
         // 方式1：通过SKU关联查询（推荐，符合当前数据库设计）
@@ -170,9 +157,8 @@ class WjcController
         }
     }
     
-    /**
-     * 按分类分组产品
-     */
+    //按分类分组产品
+    
     private function groupProductsByCategory($products): array
     {
         $grouped = [];
