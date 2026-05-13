@@ -10,13 +10,15 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\ProductMaterial;
 use App\Models\ProductSku;
+use App\Models\ProductSpec;
 use App\Models\StockChangeLog;
+use App\Http\Requests\CreateOrderRequest;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Tymon\JWTAuth\Facades\JWTAuth;
-use Illuminate\Support\Facades\Cache;
 
 class FmyController
 {
@@ -37,7 +39,7 @@ class FmyController
 
         if ($validator->fails()) {
             return response()->json([
-                'code' => 4001,
+                'code' => 400,
                 'message' => '参数验证失败',
                 'data' => null,
                 'errors' => $validator->errors()->first(),
@@ -50,7 +52,7 @@ class FmyController
 
         if (!$employee) {
             return response()->json([
-                'code' => 4010,
+                'code' => 401,
                 'message' => '用户不存在，请检查姓名是否正确',
                 'data' => null,
             ], 401);
@@ -58,7 +60,7 @@ class FmyController
 
         if ($employee->status !== 'active') {
             return response()->json([
-                'code' => 4030,
+                'code' => 403,
                 'message' => '该账号已被禁用，请联系管理员',
                 'data' => null,
             ], 403);
@@ -66,7 +68,7 @@ class FmyController
 
         if (!Hash::check($credentials['password'], $employee->password)) {
             return response()->json([
-                'code' => 4010,
+                'code' => 401,
                 'message' => '密码错误，请重新输入',
                 'data' => null,
             ], 401);
@@ -101,7 +103,7 @@ class FmyController
             
             if (!$token) {
                 return response()->json([
-                    'code' => 4010,
+                    'code' => 401,
                     'message' => '未提供令牌',
                     'data' => null,
                 ], 401);
@@ -126,58 +128,40 @@ class FmyController
             ]);
         } catch (\Tymon\JWTAuth\Exceptions\TokenInvalidException $e) {
             return response()->json([
-                'code' => 4010,
+                'code' => 401,
                 'message' => '令牌无效',
                 'data' => null,
             ], 401);
         } catch (\Tymon\JWTAuth\Exceptions\TokenExpiredException $e) {
             return response()->json([
-                'code' => 4011,
+                'code' => 401,
                 'message' => '令牌已过期，请重新登录',
                 'data' => null,
             ], 401);
         } catch (\Exception $e) {
             return response()->json([
-                'code' => 4010,
+                'code' => 401,
                 'message' => '登出失败：' . $e->getMessage(),
                 'data' => null,
             ], 401);
         }
     }
 
-    public function createOrder(): JsonResponse
+    public function createOrder(CreateOrderRequest $request): JsonResponse
     {
-        $validator = Validator::make(request()->all(), [
-            'customer_id' => 'required|exists:customers,id',
-            'items' => 'required|array|min:1',
-            'items.*.product_sku_id' => 'required|exists:product_skus,id',
-            'items.*.quantity' => 'required|integer|min:1',
-            'activity_id' => 'nullable|exists:activities,id',
-            'remark' => 'nullable|string|max:500',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'code' => 4001,
-                'message' => '参数错误',
-                'data' => null,
-                'errors' => $validator->errors(),
-            ], 400);
-        }
-
-        $user = JWTAuth::authenticate();
+        $user = auth('employee')->user();
         if (!$user) {
             return response()->json([
-                'code' => 4010,
-                'message' => '未登录或令牌已过期',
+                'code' => 401,
+                'message' => '无法创建订单：您尚未登录或登录状态已过期，请先登录',
                 'data' => null,
             ], 401);
         }
 
-        $customer = Customer::find(request()->input('customer_id'));
-        $items = request()->input('items');
-        $activityId = request()->input('activity_id');
-        $remark = request()->input('remark');
+        $customer = Customer::find($request->input('customer_id'));
+        $items = $request->input('items');
+        $activityId = $request->input('activity_id');
+        $remark = $request->input('remark');
 
         return DB::transaction(function () use ($user, $customer, $items, $activityId, $remark) {
 
@@ -241,15 +225,17 @@ class FmyController
             $memberDiscountAmount = $originalAmount * (1 - $memberDiscountRate);
             $memberDiscountDesc = "{$customer->level_name}{$memberDiscountRate}折";
 
-            if ($memberDiscountAmount < $activityDiscount || $activityDiscount === 0) {
+            // 自动选择最优优惠：取会员折扣和活动折扣中优惠金额更大的
+            if ($activityDiscount > 0 && $activityDiscount >= $memberDiscountAmount) {
+                $finalAmount = $originalAmount - $activityDiscount;
+                $discountAmount = $activityDiscount;
+                $discountDesc = $activityDesc;
+                $discountType = 'activity';
+            } else {
                 $finalAmount = $originalAmount * $memberDiscountRate;
                 $discountAmount = $memberDiscountAmount;
                 $discountDesc = $memberDiscountDesc;
                 $discountType = 'member';
-            } else {
-                $finalAmount = $originalAmount - $activityDiscount;
-                $discountAmount = $activityDiscount;
-                $discountDesc = $activityDesc;
             }
 
             $finalAmount = round($finalAmount, 2);
@@ -259,7 +245,7 @@ class FmyController
 
             if (!empty($shortage)) {
                 return response()->json([
-                    'code' => 4220,
+                    'code' => 422,
                     'message' => '库存不足',
                     'data' => [
                         'shortage' => $shortage,
@@ -350,7 +336,7 @@ class FmyController
 
         if (!$order) {
             return response()->json([
-                'code' => 4040,
+                'code' => 404,
                 'message' => '订单不存在',
                 'data' => null,
             ], 404);

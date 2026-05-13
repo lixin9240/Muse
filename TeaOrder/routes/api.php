@@ -10,7 +10,7 @@ Route::prefix('auth')->group(function () {
     Route::post('logout', [FmyController::class, 'logout'])->middleware('auth:employee');
 });
 
-Route::middleware('auth:employee')->group(function () {
+Route::middleware(['auth:employee', 'single-session'])->group(function () {
     Route::post('orders', [FmyController::class, 'createOrder']);
     Route::get('orders/{id}', [FmyController::class, 'getOrderDetail']);
 });

@@ -19,7 +19,7 @@ class CheckRole
         
         if (!$user) {
             return response()->json([
-                'code' => 4010,
+                'code' => 401,
                 'message' => '未登录或令牌已过期',
                 'data' => null
             ], 401);
@@ -27,7 +27,7 @@ class CheckRole
 
         if ($user->role !== $role) {
             return response()->json([
-                'code' => 4030,
+                'code' => 403,
                 'message' => '权限不足，仅' . match($role) {
                     'manager' => '管理员',
                     'staff' => '店员',
