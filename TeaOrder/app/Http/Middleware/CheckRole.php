@@ -20,7 +20,7 @@ class CheckRole
         if (!$user) {
             return response()->json([
                 'code' => 4010,
-                'message' => '未登录或Token已过期',
+                'message' => '未登录或令牌已过期',
                 'data' => null
             ], 401);
         }

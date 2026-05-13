@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Activity;
 use App\Models\Customer;
+use App\Models\Employee;
 use App\Models\Material;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -12,36 +13,45 @@ use App\Models\ProductSku;
 use App\Models\StockChangeLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Tymon\JWTAuth\Facades\JWTAuth;
+use Illuminate\Support\Facades\Cache;
 
-class FmyController extends Controller
+class FmyController
 {
     public function login(): JsonResponse
     {
         $validator = Validator::make(request()->all(), [
-            'phone' => 'required|string',
-            'password' => 'required|string|min:6',
+            'name' => 'required|string|max:20',
+            'password' => 'required|string|min:6|max:32',
+        ], [
+            'name.required' => '请输入姓名',
+            'name.string' => '姓名必须是字符串',
+            'name.max' => '姓名不能超过20个字符',
+            'password.required' => '请输入密码',
+            'password.string' => '密码必须是字符串',
+            'password.min' => '密码长度至少6个字符',
+            'password.max' => '密码长度不能超过32个字符',
         ]);
 
         if ($validator->fails()) {
             return response()->json([
                 'code' => 4001,
-                'message' => '参数错误',
+                'message' => '参数验证失败',
                 'data' => null,
-                'errors' => $validator->errors(),
+                'errors' => $validator->errors()->first(),
             ], 400);
         }
 
-        $credentials = request()->only('phone', 'password');
+        $credentials = request()->only('name', 'password');
 
-        $employee = Employee::where('phone', $credentials['phone'])->first();
+        $employee = Employee::where('name', $credentials['name'])->first();
 
         if (!$employee) {
             return response()->json([
                 'code' => 4010,
-                'message' => '手机号或密码错误',
+                'message' => '用户不存在，请检查姓名是否正确',
                 'data' => null,
             ], 401);
         }
@@ -49,7 +59,7 @@ class FmyController extends Controller
         if ($employee->status !== 'active') {
             return response()->json([
                 'code' => 4030,
-                'message' => '账号已被禁用',
+                'message' => '该账号已被禁用，请联系管理员',
                 'data' => null,
             ], 403);
         }
@@ -57,7 +67,7 @@ class FmyController extends Controller
         if (!Hash::check($credentials['password'], $employee->password)) {
             return response()->json([
                 'code' => 4010,
-                'message' => '手机号或密码错误',
+                'message' => '密码错误，请重新输入',
                 'data' => null,
             ], 401);
         }
@@ -66,20 +76,13 @@ class FmyController extends Controller
 
         $token = JWTAuth::fromUser($employee);
 
-        Redis::set(
-            "employee_token:{$employee->id}",
-            $token,
-            'EX',
-            config('jwt.ttl') * 60
-        );
+        Cache::put('employee_token:' . $employee->id, $token, config('jwt.ttl'));
 
         return response()->json([
             'code' => 200,
             'message' => '登录成功',
             'data' => [
                 'token' => $token,
-                'token_type' => 'Bearer',
-                'expires_in' => config('jwt.ttl') * 60,
                 'employee' => [
                     'id' => $employee->id,
                     'name' => $employee->name,
@@ -94,23 +97,49 @@ class FmyController extends Controller
     public function logout(): JsonResponse
     {
         try {
-            $user = JWTAuth::authenticate();
-
-            if ($user) {
-                Redis::del("employee_token:{$user->id}");
+            $token = JWTAuth::getToken();
+            
+            if (!$token) {
+                return response()->json([
+                    'code' => 4010,
+                    'message' => '未提供令牌',
+                    'data' => null,
+                ], 401);
             }
 
-            JWTAuth::invalidate(JWTAuth::getToken());
+            try {
+                $user = JWTAuth::authenticate();
+                
+                if ($user) {
+                    Cache::forget('employee_token:' . $user->id);
+                }
+            } catch (\Exception $e) {
+                // 即使 authenticate 失败，也继续尝试使 token 失效
+            }
+            
+            JWTAuth::invalidate($token);
 
             return response()->json([
                 'code' => 200,
                 'message' => '登出成功',
                 'data' => null,
             ]);
+        } catch (\Tymon\JWTAuth\Exceptions\TokenInvalidException $e) {
+            return response()->json([
+                'code' => 4010,
+                'message' => '令牌无效',
+                'data' => null,
+            ], 401);
+        } catch (\Tymon\JWTAuth\Exceptions\TokenExpiredException $e) {
+            return response()->json([
+                'code' => 4011,
+                'message' => '令牌已过期，请重新登录',
+                'data' => null,
+            ], 401);
         } catch (\Exception $e) {
             return response()->json([
                 'code' => 4010,
-                'message' => 'Token无效或已过期',
+                'message' => '登出失败：' . $e->getMessage(),
                 'data' => null,
             ], 401);
         }
@@ -140,7 +169,7 @@ class FmyController extends Controller
         if (!$user) {
             return response()->json([
                 'code' => 4010,
-                'message' => '未登录或Token已过期',
+                'message' => '未登录或令牌已过期',
                 'data' => null,
             ], 401);
         }
@@ -437,15 +466,18 @@ class FmyController extends Controller
 
     private function invalidateOldTokens(int $employeeId): void
     {
-        $oldToken = Redis::get("employee_token:{$employeeId}");
-
+        $oldToken = Cache::get('employee_token:' . $employeeId);
+        
         if ($oldToken) {
             try {
+                // 使旧的 JWT Token 失效（加入黑名单）
                 JWTAuth::setToken($oldToken)->invalidate();
-                Redis::del("employee_token:{$employeeId}");
             } catch (\Exception $e) {
-                Redis::del("employee_token:{$employeeId}");
+                // 如果旧 token 已经失效或无效，忽略异常
             }
+            
+            // 清除缓存中的旧 token 记录
+            Cache::forget('employee_token:' . $employeeId);
         }
     }
 }
