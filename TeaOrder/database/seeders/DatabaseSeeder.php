@@ -58,8 +58,8 @@ class DatabaseSeeder extends Seeder
     private function seedEmployees($now): void
     {
         $employees = [
-            // 1个经理 (director)
-            ['store_id' => 1, 'name' => '赵总', 'phone' => '13700137001', 'password' => Hash::make('123456'), 'role' => 'director', 'status' => 'active'],
+            // 1个经理 (director) - store_id为null表示管理所有门店
+            ['store_id' => null, 'name' => '赵总', 'phone' => '13700137001', 'password' => Hash::make('123456'), 'role' => 'director', 'status' => 'active'],
             // 3个店长 (manager)
             ['store_id' => 1, 'name' => '张伟', 'phone' => '13800138001', 'password' => Hash::make('123456'), 'role' => 'manager', 'status' => 'active'],
             ['store_id' => 2, 'name' => '李娜', 'phone' => '13800138002', 'password' => Hash::make('123456'), 'role' => 'manager', 'status' => 'active'],
