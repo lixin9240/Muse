@@ -16,7 +16,7 @@ return new class extends Migration
             $table->string('name')->comment('姓名');
             $table->string('phone')->comment('手机号');
             $table->string('password')->comment('密码');
-            $table->enum('role', ['manager', 'staff'])->default('staff')->comment('角色：店长、店员');
+            $table->enum('role', ['director', 'manager', 'staff'])->default('staff')->comment('角色：经理、店长、店员');
             $table->enum('status', ['active', 'inactive'])->default('active')->comment('状态');
             $table->timestamps();
             $table->softDeletes();
