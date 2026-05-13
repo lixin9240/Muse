@@ -12,7 +12,7 @@ return new class extends Migration
     {
         Schema::create('employees', function (Blueprint $table) {
             $table->id()->comment('员工ID');
-            $table->unsignedBigInteger('store_id')->comment('门店ID');
+            $table->unsignedBigInteger('store_id')->nullable()->comment('门店ID，null表示管理所有门店（经理）');
             $table->string('name')->comment('姓名');
             $table->string('phone')->comment('手机号');
             $table->string('password')->comment('密码');
