@@ -143,25 +143,25 @@ class DatabaseSeeder extends Seeder
     {
         $skus = [
             // 招牌珍珠奶茶 - 中杯
-            ['product_id' => 1, 'spec_ids' => '1,21,25', 'price' => 18.00, 'sku_code' => 'ZM001-M-QW'],
+            ['product_id' => 1, 'spec_ids' => '1,9,13', 'price' => 18.00, 'sku_code' => 'ZM001-M-QW'],
 
             // 招牌珍珠奶茶 - 大杯
-            ['product_id' => 1, 'spec_ids' => '2,21,25', 'price' => 21.00, 'sku_code' => 'ZM001-L-QW'],
+            ['product_id' => 1, 'spec_ids' => '2,9,13', 'price' => 21.00, 'sku_code' => 'ZM001-L-QW'],
 
             // 满杯水果茶 - 中杯
-            ['product_id' => 4, 'spec_ids' => '7', 'price' => 25.00, 'sku_code' => 'SG004-M'],
+            ['product_id' => 2, 'spec_ids' => '3', 'price' => 25.00, 'sku_code' => 'SG004-M'],
             // 满杯水果茶 - 大杯
-            ['product_id' => 4, 'spec_ids' => '8', 'price' => 30.00, 'sku_code' => 'SG004-L'],
+            ['product_id' => 2, 'spec_ids' => '4', 'price' => 30.00, 'sku_code' => 'SG004-L'],
 
             // 龙井绿茶 - 中杯
-            ['product_id' => 8, 'spec_ids' => '15,52', 'price' => 16.00, 'sku_code' => 'LJLQC008-M'],
+            ['product_id' => 3, 'spec_ids' => '5,11', 'price' => 16.00, 'sku_code' => 'LJLQC008-M'],
             // 龙井绿茶 - 大杯
-            ['product_id' => 8, 'spec_ids' => '16,52', 'price' => 19.00, 'sku_code' => 'LJLQC008-L'],
+            ['product_id' => 3, 'spec_ids' => '6,11', 'price' => 19.00, 'sku_code' => 'LJLQC008-L'],
 
             // 拿铁咖啡 - 中杯
-            ['product_id' => 10, 'spec_ids' => '19,55', 'price' => 24.00, 'sku_code' => 'NTKF010-M-HOT'],
+            ['product_id' => 4, 'spec_ids' => '7,12', 'price' => 24.00, 'sku_code' => 'NTKF010-M-HOT'],
             // 拿铁咖啡 - 大杯
-            ['product_id' => 10, 'spec_ids' => '20,55', 'price' => 28.00, 'sku_code' => 'NTKF010-L-HOT'],
+            ['product_id' => 4, 'spec_ids' => '8,12', 'price' => 28.00, 'sku_code' => 'NTKF010-L-HOT'],
         ];
 
         foreach ($skus as $sku) {
