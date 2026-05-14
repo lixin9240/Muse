@@ -273,7 +273,7 @@ class WjcController
 
     public function today(): JsonResponse
     {
-        $user = JWTAuth::authenticate();
+        $user = auth('employee')->user();
         if (!$user) {
             return response()->json(['code' => 4010, 'message' => '未登录'], 401);
         }
@@ -349,7 +349,7 @@ class WjcController
 
     public function ranking(): JsonResponse
     {
-        $user = JWTAuth::authenticate();
+        $user = auth('employee')->user();
         if (!$user) {
             return response()->json(['code' => 4010, 'message' => '未登录'], 401);
         }
@@ -446,7 +446,7 @@ class WjcController
     
     public function members(): JsonResponse
     {
-        $user = JWTAuth::authenticate();
+        $user = auth('employee')->user();
         if (!$user) {
             return response()->json(['code' => 4010, 'message' => '未登录'], 401);
         }
