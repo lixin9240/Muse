@@ -26,8 +26,19 @@ class DatabaseSeeder extends Seeder
 
         $this->command->info('🚀 开始生成测试数据...');
 
+        // 注意：由于外键约束，需要先创建基础数据
+        // 1. 先创建经理（无store_id依赖）
+        $this->seedDirector($now);
+        
+        // 2. 创建门店（暂时无manager_id）
         $this->seedStores($now);
+        
+        // 3. 创建店长和店员（依赖门店ID）
         $this->seedEmployees($now);
+        
+        // 4. 更新门店的manager_id
+        $this->updateStoreManagerIds();
+
         $this->seedCategories($now);
         $this->seedProducts($now);
         $this->seedSpecs($now);
@@ -40,12 +51,31 @@ class DatabaseSeeder extends Seeder
         $this->command->info('✅ 所有测试数据生成完成！');
     }
 
+    /**
+     * 创建经理
+     */
+    private function seedDirector($now): void
+    {
+        Employee::create([
+            'store_id' => null,
+            'name' => '赵总',
+            'phone' => '13700137001',
+            'password' => Hash::make('123456'),
+            'role' => 'director',
+            'status' => 'active',
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        $this->command->info('  ✅ 创建 1 个经理');
+    }
+
     private function seedStores($now): void
     {
         $stores = [
-            ['name' => '万达广场店', 'address' => '北京市朝阳区建国路93号万达广场B1层', 'phone' => '010-88880001', 'status' => 'active'],
-            ['name' => '三里屯店', 'address' => '北京市朝阳区三里屯路19号太古里', 'phone' => '010-88880002', 'status' => 'active'],
-            ['name' => '中关村店', 'address' => '北京市海淀区中关村大街27号中关村大厦', 'phone' => '010-88880003', 'status' => 'active'],
+            ['name' => '万达广场店', 'address' => '北京市朝阳区建国路93号万达广场B1层', 'phone' => '010-88880001', 'status' => 'active', 'manager_id' => null],
+            ['name' => '三里屯店', 'address' => '北京市朝阳区三里屯路19号太古里', 'phone' => '010-88880002', 'status' => 'active', 'manager_id' => null],
+            ['name' => '中关村店', 'address' => '北京市海淀区中关村大街27号中关村大厦', 'phone' => '010-88880003', 'status' => 'active', 'manager_id' => null],
         ];
 
         foreach ($stores as $store) {
@@ -57,24 +87,61 @@ class DatabaseSeeder extends Seeder
 
     private function seedEmployees($now): void
     {
-        $employees = [
-            // 1个经理 (director) - store_id为null表示管理所有门店
-            ['store_id' => null, 'name' => '赵总', 'phone' => '13700137001', 'password' => Hash::make('123456'), 'role' => 'director', 'status' => 'active'],
-            // 3个店长 (manager)
-            ['store_id' => 1, 'name' => '张伟', 'phone' => '13800138001', 'password' => Hash::make('123456'), 'role' => 'manager', 'status' => 'active'],
-            ['store_id' => 2, 'name' => '李娜', 'phone' => '13800138002', 'password' => Hash::make('123456'), 'role' => 'manager', 'status' => 'active'],
-            ['store_id' => 3, 'name' => '王强', 'phone' => '13800138003', 'password' => Hash::make('123456'), 'role' => 'manager', 'status' => 'active'],
-            // 3个员工 (staff)
-            ['store_id' => 1, 'name' => '刘芳', 'phone' => '13900139001', 'password' => Hash::make('123456'), 'role' => 'staff', 'status' => 'active'],
-            ['store_id' => 2, 'name' => '陈明', 'phone' => '13900139002', 'password' => Hash::make('123456'), 'role' => 'staff', 'status' => 'active'],
-            ['store_id' => 3, 'name' => '杨洋', 'phone' => '13900139003', 'password' => Hash::make('123456'), 'role' => 'staff', 'status' => 'active'],
+        // 3个店长
+        $managers = [
+            ['store_id' => 1, 'name' => '张伟', 'phone' => '13800138001'],
+            ['store_id' => 2, 'name' => '李娜', 'phone' => '13800138002'],
+            ['store_id' => 3, 'name' => '王强', 'phone' => '13800138003'],
         ];
 
-        foreach ($employees as $employee) {
-            Employee::create(array_merge($employee, ['created_at' => $now, 'updated_at' => $now]));
+        foreach ($managers as $manager) {
+            Employee::create(array_merge($manager, [
+                'password' => Hash::make('123456'),
+                'role' => 'manager',
+                'status' => 'active',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]));
         }
 
-        $this->command->info('  ✅ 创建 1 个经理、3 个店长和 3 个员工');
+        // 3个员工
+        $staffs = [
+            ['store_id' => 1, 'name' => '刘芳', 'phone' => '13900139001'],
+            ['store_id' => 2, 'name' => '陈明', 'phone' => '13900139002'],
+            ['store_id' => 3, 'name' => '杨洋', 'phone' => '13900139003'],
+        ];
+
+        foreach ($staffs as $staff) {
+            Employee::create(array_merge($staff, [
+                'password' => Hash::make('123456'),
+                'role' => 'staff',
+                'status' => 'active',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]));
+        }
+
+        $this->command->info('  ✅ 创建 3 个店长和 3 个员工');
+    }
+
+    /**
+     * 更新门店的manager_id为店长ID
+     */
+    private function updateStoreManagerIds(): void
+    {
+        $stores = Store::all();
+        foreach ($stores as $store) {
+            // 找到该门店的店长
+            $manager = Employee::where('store_id', $store->id)
+                ->where('role', 'manager')
+                ->first();
+            
+            if ($manager) {
+                $store->update(['manager_id' => $manager->id]);
+            }
+        }
+
+        $this->command->info('  ✅ 更新门店manager_id');
     }
 
     private function seedCategories($now): void
@@ -288,7 +355,7 @@ class DatabaseSeeder extends Seeder
             ]));
         }
 
-        $this->command->info('  ✅ 创建 8 个顾客（含不同会员等级）');
+        $this->command->info('  ✅ 创建 2 个顾客（含不同会员等级）');
     }
 
     private function seedActivities($now): void
