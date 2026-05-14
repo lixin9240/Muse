@@ -183,14 +183,6 @@ class WjcController
 
     public function store(): JsonResponse
     {
-        $user = JWTAuth::authenticate();
-        if (!$user || $user->role !== 'manager') {
-            return response()->json([
-                'code' => 4030,
-                'message' => '仅管理员可操作'
-            ], 403);
-        }
-
         $validator = Validator::make(request()->all(), [
             'category_id' => 'required|exists:categories,id',
             'name' => 'required|string|max:100',
