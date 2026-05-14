@@ -6,7 +6,6 @@ use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\Response;
-use Tymon\JWTAuth\Facades\JWTAuth;
 
 class SingleSession
 {
@@ -23,7 +22,7 @@ class SingleSession
                 ], 401);
             }
 
-            $user = JWTAuth::parseToken()->authenticate();
+            $user = $request->user('employee');
 
             if (!$user) {
                 return response()->json([

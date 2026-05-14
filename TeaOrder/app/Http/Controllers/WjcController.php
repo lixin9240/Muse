@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\{Category, Customer, Material, Order, OrderItem, Product, ProductMaterial, ProductSpec};
+use App\Models\{Category, Customer, Material, Order, OrderItem, Product, ProductMaterial, ProductSpec, ProductSku};
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\{Cache, DB, Validator, Redis};
 use Tymon\JWTAuth\Facades\JWTAuth;
@@ -60,7 +60,7 @@ class WjcController
                 'category' => $product->category->name,
                 'image_url' => $product->image_url,
                 'description' => $product->description,
-                'stock_status' => $stockStatus['status'],      // available | low_stock | out_of_stock
+                'stock_status' => $stockStatus['status'],
                 'stock_info' => $stockStatus['info'],           // 库存详情信息
                 'specs' => $product->specs->map(function ($spec) use ($product) {
                     return [
@@ -183,6 +183,14 @@ class WjcController
 
     public function store(): JsonResponse
     {
+        $user = auth('employee')->user();
+        if (!$user || $user->role !== 'manager') {
+            return response()->json([
+                'code' => 4030,
+                'message' => '仅管理员可操作'
+            ], 403);
+        }
+
         $validator = Validator::make(request()->all(), [
             'category_id' => 'required|exists:categories,id',
             'name' => 'required|string|max:100',
@@ -216,19 +224,33 @@ class WjcController
                 'sort_order' => 0
             ]);
 
+            $specIds = [];
             foreach (request('specs') as $index => $spec) {
-                ProductSpec::create([
+                $productSpec = ProductSpec::create([
                     'product_id' => $product->id,
                     'name' => $spec['name'],
                     'extra_price' => $spec['extra_price'],
                     'sort_order' => $index
                 ]);
+                $specIds[] = $productSpec->id;
             }
 
-            if (request()->has('materials')) {
+            // 创建 SKU
+            $firstSku = null;
+            if (!empty($specIds)) {
+                $firstSku = ProductSku::create([
+                    'product_id' => $product->id,
+                    'spec_ids' => json_encode($specIds),
+                    'price' => $product->base_price,
+                    'sku_code' => 'SKU-' . $product->id . '-001',
+                    'status' => 'active'
+                ]);
+            }
+
+            if (request()->has('materials') && $firstSku) {
                 foreach (request('materials') as $material) {
                     ProductMaterial::create([
-                        'product_sku_id' => $product->specs->first()->id ?? null,
+                        'product_sku_id' => $firstSku->id,
                         'material_id' => $material['material_id'],
                         'quantity' => $material['quantity']
                     ]);
