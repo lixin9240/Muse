@@ -1,6 +1,6 @@
 <?php
 // database/migrations/2024_01_01_000006_create_product_materials_table.php
-
+// 产品原料关联表
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
