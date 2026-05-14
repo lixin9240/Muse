@@ -37,4 +37,11 @@ Route::middleware(['single-session', 'auth:employee'])->group(function () {
         Route::get('ranking', [WjcController::class, 'ranking']);
         Route::get('members', [WjcController::class, 'members']);
     });
+    
+    // 员工管理模块
+    Route::prefix('stores')->group(function () {
+        Route::post('{storeId}/employees', [FmyController::class, 'addEmployee']);
+        Route::get('{storeId}/employees', [FmyController::class, 'listEmployees']);
+        Route::delete('{storeId}/employees/{employeeId}', [FmyController::class, 'deleteEmployee']);
+    });
 });
