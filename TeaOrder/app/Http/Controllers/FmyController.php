@@ -439,14 +439,13 @@ class FmyController
 
     private function calculateMemberLevel(float $totalSpent): string
     {
-        if ($totalSpent >= 1000) {
+        // 会员等级：银卡(0) -> 金卡(2000) -> 钻石卡(4000)
+        if ($totalSpent >= 4000) {
             return 'diamond';
-        } elseif ($totalSpent >= 500) {
+        } elseif ($totalSpent >= 2000) {
             return 'gold';
-        } elseif ($totalSpent >= 100) {
-            return 'silver';
         } else {
-            return 'none';
+            return 'silver'; // 新会员默认为银卡
         }
     }
 

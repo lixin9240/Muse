@@ -191,10 +191,11 @@ class LXController extends \Illuminate\Routing\Controller
         Redis::del($codeKey);
         Redis::del(self::RATE_LIMIT_PREFIX . $customerId);
 
-        // 更新顾客为会员
+        // 更新顾客为会员（银卡）
         $customer->update([
             'email' => $email,
             'type' => 'member',
+            'level' => 'silver',  // 新会员默认为银卡
             'is_verified' => true,
             'became_member_at' => now(),
         ]);
@@ -277,31 +278,26 @@ class LXController extends \Illuminate\Routing\Controller
             'diamond' => '钻石卡会员，享受85折优惠',
             'gold' => '金卡会员，享受9折优惠',
             'silver' => '银卡会员，享受95折优惠',
-            default => '暂无折扣，累计消费满100元升银卡（95折）',
+            default => '暂无折扣，验证邮箱成为银卡会员（95折）',
         };
     }
 
     /**
      * 获取下一等级信息
+     * 银卡(0) -> 金卡(2000) -> 钻石卡(4000)
      */
     private function getNextLevelInfo(float $totalSpent): array
     {
-        if ($totalSpent < 100) {
-            return [
-                'name' => '银卡',
-                'need_amount' => number_format(100 - $totalSpent, 2),
-                'discount' => '95折',
-            ];
-        } elseif ($totalSpent < 500) {
+        if ($totalSpent < 2000) {
             return [
                 'name' => '金卡',
-                'need_amount' => number_format(500 - $totalSpent, 2),
+                'need_amount' => number_format(2000 - $totalSpent, 2),
                 'discount' => '9折',
             ];
-        } elseif ($totalSpent < 1000) {
+        } elseif ($totalSpent < 4000) {
             return [
                 'name' => '钻石卡',
-                'need_amount' => number_format(1000 - $totalSpent, 2),
+                'need_amount' => number_format(4000 - $totalSpent, 2),
                 'discount' => '85折',
             ];
         }
