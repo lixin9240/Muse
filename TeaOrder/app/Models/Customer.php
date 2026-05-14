@@ -36,6 +36,10 @@ class Customer extends Model
         'became_member_at' => 'datetime',
     ];
 
+    /**
+     * @used-by FmyController::createOrder
+     * @used-by LXController::show
+     */
     public function firstStore(): BelongsTo
     {
         return $this->belongsTo(Store::class, 'first_store_id');
@@ -46,6 +50,10 @@ class Customer extends Model
         return $this->hasMany(Order::class);
     }
 
+    /**
+     * @used-by FmyController::createOrder
+     * @used-by LXController::show
+     */
     public function getDiscountRateAttribute(): float
     {
         return match ($this->level) {
@@ -56,6 +64,10 @@ class Customer extends Model
         };
     }
 
+    /**
+     * @used-by FmyController::createOrder
+     * @used-by LXController::show
+     */
     public function getLevelNameAttribute(): string
     {
         return match ($this->level) {
