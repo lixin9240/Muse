@@ -16,6 +16,15 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \App\Http\Middleware\CheckRole::class,
             'single-session' => \App\Http\Middleware\SingleSession::class,
         ]);
+
+        // 配置认证失败时不重定向，返回 JSON 响应
+        $middleware->redirectGuestsTo(function ($request) {
+            return response()->json([
+                'code' => 4010,
+                'message' => '未登录或令牌无效',
+                'data' => null,
+            ], 401);
+        });
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(function (\Tymon\JWTAuth\Exceptions\TokenInvalidException $e, $request) {
