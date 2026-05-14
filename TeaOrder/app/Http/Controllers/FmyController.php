@@ -335,12 +335,17 @@ class FmyController
                 $customer->update(['first_store_id' => $user->store_id]);
             }
 
-            $newLevel = $this->calculateMemberLevel($customer->total_spent);
-            if ($newLevel !== $oldLevel) {
-                $customer->update(['level' => $newLevel]);
-                $memberUpgraded = true;
-            } else {
-                $memberUpgraded = false;
+            // 只有已验证的会员才能升级等级
+            $memberUpgraded = false;
+            $upgradeMessage = '';
+            if ($customer->is_verified) {
+                $newLevel = $this->calculateMemberLevel($customer->total_spent);
+                if ($newLevel !== $oldLevel) {
+                    $oldLevelName = $customer->level_name;
+                    $customer->update(['level' => $newLevel]);
+                    $memberUpgraded = true;
+                    $upgradeMessage = "恭喜！您的会员等级已从{$oldLevelName}升级为{$customer->level_name}！";
+                }
             }
 
             return response()->json([
@@ -374,6 +379,7 @@ class FmyController
                     ],
                     'stock_deducted' => true,
                     'member_upgraded' => $memberUpgraded,
+                    'upgrade_message' => $upgradeMessage,
                     'created_at' => $order->created_at->toIso8601String(),
                 ],
             ]);
@@ -511,13 +517,13 @@ class FmyController
 
     private function calculateMemberLevel(float $totalSpent): string
     {
-        // 会员等级：银卡(0) -> 金卡(2000) -> 钻石卡(4000)
-        if ($totalSpent >= 4000) {
-            return 'diamond';
-        } elseif ($totalSpent >= 2000) {
+        // 会员等级：银卡(验证即得) -> 金卡(500) -> 钻石卡(1000)
+        if ($totalSpent >= 1000) {
+            return 'diamond'; // 最高等级
+        } elseif ($totalSpent >= 500) {
             return 'gold';
         } else {
-            return 'silver'; // 新会员默认为银卡
+            return 'silver'; // 验证邮箱后默认银卡
         }
     }
 
