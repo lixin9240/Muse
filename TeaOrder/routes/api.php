@@ -37,7 +37,6 @@ Route::middleware(['single-session', 'auth:employee'])->group(function () {
         Route::get('ranking', [WjcController::class, 'ranking']);
         Route::get('members', [WjcController::class, 'members']);
     });
-<<<<<<< HEAD
     
     // 员工管理模块
     Route::prefix('stores')->group(function () {
@@ -46,8 +45,7 @@ Route::middleware(['single-session', 'auth:employee'])->group(function () {
         Route::delete('{storeId}/employees/{employeeId}', [FmyController::class, 'deleteEmployee']);
     });
 });
-=======
-});
+
 
 // 门店模块 
 Route::middleware('auth:employee')->prefix('stores')->group(function () {
@@ -56,9 +54,9 @@ Route::middleware('auth:employee')->prefix('stores')->group(function () {
     Route::put('/{id}', [LXController::class, 'updateStore']);       // 6.3 更新门店信息
 });
 
+
 //文件上传模块（OSS直传）
 Route::middleware('auth:employee')->prefix('upload')->group(function () {
     Route::post('/signature', [LXController::class, 'getOssSignature']);  // 获取OSS上传签名
     Route::post('/callback', [LXController::class, 'ossCallback']);       // OSS上传回调
 });
->>>>>>> LX-develop
