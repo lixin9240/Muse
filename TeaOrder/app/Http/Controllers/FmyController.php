@@ -531,11 +531,10 @@ class FmyController
      * 添加门店员工
      * 权限：经理可添加店长和店员，店长只能添加店员
      */
-    public function addEmployee(int $storeId): JsonResponse
+    public function addEmployee(): JsonResponse
     {
         $user = request()->user('employee');
 
-        // 验证权限
         if ($user->role === 'staff') {
             return response()->json([
                 'code' => 403,
@@ -544,49 +543,54 @@ class FmyController
             ], 403);
         }
 
-        // 店长只能添加店员，不能添加店长
-        if ($user->role === 'manager') {
-            $allowedRoles = ['staff'];
-        } else {
-            // 经理可以添加店长和店员
-            $allowedRoles = ['manager', 'staff'];
-        }
+        $allowedRoles = $user->role === 'director' ? ['manager', 'staff'] : ['staff'];
 
-        $validator = Validator::make(request()->all(), [
+        $rules = [
             'name' => 'required|string|max:20|unique:employees,name',
             'phone' => 'required|string|max:20|unique:employees,phone',
             'password' => 'required|string|min:6|max:32',
             'role' => 'required|in:' . implode(',', $allowedRoles),
-        ], [
-            'name.required' => '请输入姓名',
-            'name.string' => '姓名必须是字符串',
-            'name.max' => '姓名不能超过20个字符',
-            'name.unique' => '该姓名已被使用',
-            'phone.required' => '请输入手机号',
-            'phone.string' => '手机号必须是字符串',
+        ];
+
+        if ($user->role === 'director') {
+            $rules['store_id'] = 'required|exists:stores,id';
+        }
+
+        $validator = Validator::make(request()->all(), $rules, [
+            'name.required' => '请输入员工姓名',
+            'name.max' => '员工姓名不能超过20个字符',
+            'name.unique' => '该员工姓名已被使用',
+            'phone.required' => '请输入员工手机号',
             'phone.max' => '手机号不能超过20个字符',
-            'phone.unique' => '该手机号已被使用',
-            'password.required' => '请输入密码',
-            'password.string' => '密码必须是字符串',
+            'phone.unique' => '该手机号已被其他员工使用',
+            'password.required' => '请设置登录密码',
             'password.min' => '密码长度至少6个字符',
             'password.max' => '密码长度不能超过32个字符',
-            'role.required' => '请选择角色',
+            'role.required' => '请选择员工角色',
             'role.in' => '您无权添加该角色',
+            'store_id.required' => '请选择所属门店',
+            'store_id.exists' => '所选门店不存在',
         ]);
 
         if ($validator->fails()) {
+            $missingFields = [];
+            foreach ($validator->errors()->toArray() as $field => $messages) {
+                $missingFields[] = $field;
+            }
             return response()->json([
                 'code' => 400,
                 'message' => '参数验证失败：' . $validator->errors()->first(),
-                'data' => null,
+                'data' => [
+                    'missing_fields' => $missingFields,
+                ],
             ], 400);
         }
 
         $data = $validator->validated();
+        $targetStoreId = $user->role === 'director' ? $data['store_id'] : $user->store_id;
 
-        // 一个门店只能有一个店长
         if ($data['role'] === 'manager') {
-            $existingManager = Employee::where('store_id', $storeId)
+            $existingManager = Employee::where('store_id', $targetStoreId)
                 ->where('role', 'manager')
                 ->where('status', 'active')
                 ->exists();
@@ -601,7 +605,7 @@ class FmyController
         }
 
         $employee = Employee::create([
-            'store_id' => $storeId,
+            'store_id' => $targetStoreId,
             'name' => $data['name'],
             'phone' => $data['phone'],
             'password' => Hash::make($data['password']),
@@ -632,22 +636,21 @@ class FmyController
     /**
      * 获取门店员工列表
      */
-    public function listEmployees(int $storeId): JsonResponse
+    public function listEmployees(): JsonResponse
     {
         $user = request()->user('employee');
 
-        // 经理可以查看所有门店，店长和店员只能查看自己门店
-        if ($user->role !== 'director' && $user->store_id !== $storeId) {
-            return response()->json([
-                'code' => 403,
-                'message' => '权限不足，只能查看本门店员工',
-                'data' => null,
-            ], 403);
+        $query = Employee::where('status', 'active');
+
+        if ($user->role === 'director') {
+            if (request()->has('store_id')) {
+                $query->where('store_id', request('store_id'));
+            }
+        } else {
+            $query->where('store_id', $user->store_id);
         }
 
-        $employees = Employee::where('store_id', $storeId)
-            ->where('status', 'active')
-            ->get();
+        $employees = $query->get();
 
         return response()->json([
             'code' => 200,
@@ -655,15 +658,7 @@ class FmyController
             'data' => $employees->map(fn($emp) => [
                 'id' => $emp->id,
                 'name' => $emp->name,
-                'phone' => $emp->phone,
-                'role' => $emp->role,
-                'role_name' => match($emp->role) {
-                    'manager' => '店长',
-                    'staff' => '店员',
-                    default => $emp->role,
-                },
-                'status' => $emp->status,
-                'created_at' => $emp->created_at->toIso8601String(),
+                'store_id' => $emp->store_id,
             ]),
         ]);
     }
@@ -671,11 +666,10 @@ class FmyController
     /**
      * 删除门店员工（软删除）
      */
-    public function deleteEmployee(int $storeId, int $employeeId): JsonResponse
+    public function deleteEmployee(int $employeeId): JsonResponse
     {
         $user = request()->user('employee');
 
-        // 权限检查
         if ($user->role === 'staff') {
             return response()->json([
                 'code' => 403,
@@ -684,9 +678,13 @@ class FmyController
             ], 403);
         }
 
-        $employee = Employee::where('id', $employeeId)
-            ->where('store_id', $storeId)
-            ->first();
+        $query = Employee::where('id', $employeeId);
+
+        if ($user->role !== 'director') {
+            $query->where('store_id', $user->store_id);
+        }
+
+        $employee = $query->first();
 
         if (!$employee) {
             return response()->json([
@@ -696,7 +694,6 @@ class FmyController
             ], 404);
         }
 
-        // 店长只能删除店员，不能删除店长
         if ($user->role === 'manager' && $employee->role !== 'staff') {
             return response()->json([
                 'code' => 403,
@@ -705,7 +702,6 @@ class FmyController
             ], 403);
         }
 
-        // 不能删除自己
         if ($employee->id === $user->id) {
             return response()->json([
                 'code' => 400,
@@ -716,7 +712,6 @@ class FmyController
 
         $employee->update(['status' => 'inactive']);
 
-        // 如果删除的是店长，门店 manager_id 会自动设为 null（外键约束）
         $message = '员工已删除';
         if ($employee->role === 'manager') {
             $message .= '，该门店暂无店长，请及时分配新店长';
@@ -726,6 +721,58 @@ class FmyController
             'code' => 200,
             'message' => $message,
             'data' => null,
+        ]);
+    }
+
+    public function getEmployeeDetail(int $employeeId): JsonResponse
+    {
+        $user = request()->user('employee');
+
+        $employee = Employee::find($employeeId);
+
+        if (!$employee) {
+            return response()->json([
+                'code' => 404,
+                'message' => '员工不存在',
+                'data' => null,
+            ], 404);
+        }
+
+        if ($user->role === 'manager' && $user->store_id !== $employee->store_id) {
+            return response()->json([
+                'code' => 403,
+                'message' => '权限不足，只能查看本店员工',
+                'data' => null,
+            ], 403);
+        }
+
+        if ($user->role === 'staff' && $user->id !== $employeeId) {
+            return response()->json([
+                'code' => 403,
+                'message' => '权限不足，只能查看自己的信息',
+                'data' => null,
+            ], 403);
+        }
+
+        return response()->json([
+            'code' => 200,
+            'message' => '获取成功',
+            'data' => [
+                'id' => $employee->id,
+                'name' => $employee->name,
+                'phone' => $employee->phone,
+                'role' => $employee->role,
+                'role_name' => match($employee->role) {
+                    'director' => '经理',
+                    'manager' => '店长',
+                    'staff' => '店员',
+                    default => $employee->role,
+                },
+                'store_id' => $employee->store_id,
+                'status' => $employee->status,
+                'created_at' => $employee->created_at->toIso8601String(),
+                'updated_at' => $employee->updated_at->toIso8601String(),
+            ],
         ]);
     }
 }
