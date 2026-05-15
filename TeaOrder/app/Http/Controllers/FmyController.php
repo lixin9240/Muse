@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Tymon\JWTAuth\Exceptions\JWTException;
+use Tymon\JWTAuth\Exceptions\TokenBlacklistedException;
 use Tymon\JWTAuth\Exceptions\TokenExpiredException;
 use Tymon\JWTAuth\Exceptions\TokenInvalidException;
 use Tymon\JWTAuth\Facades\JWTAuth;
@@ -83,8 +84,9 @@ class FmyController
         //根据传入的 $employee 用户对象，生成并返回一个全新的 JWT 字符串（Token）。
         $token = JWTAuth::fromUser($employee);
 
-        //将该员工本次登录生成的全新 Token 存入缓存，并设置与 JWT 配置一致的过期时间。
-        Cache::put('employee_token:' . $employee->id, $token, config('jwt.ttl'));
+        //将该员工本次登录生成的全新 Token 存入缓存，使用分钟为单位
+        $ttlMinutes = config('jwt.ttl', 60);
+        Cache::put('employee_token:' . $employee->id, $token, now()->addMinutes($ttlMinutes));
 
         return response()->json([
             'code' => 200,
@@ -127,26 +129,13 @@ class FmyController
     public function logout(): JsonResponse
     {
         try {
-            // 1. 检查是否携带了 Token
-            $token = JWTAuth::getToken();
-            if (!$token) {
-                return response()->json([
-                    'code' => 401,
-                    'message' => '未提供令牌',
-                    'data' => null,
-                ], 401);
-            }
+            // 通过 auth 获取当前已认证的用户（由 auth:employee 中间件保证）
+            $user = auth('employee')->user();
 
-            // 2. 尝试解析并验证 Token
-            $user = JWTAuth::authenticate();
+            // 使当前 token 失效（从请求头获取）
+            JWTAuth::invalidate(JWTAuth::getToken());
+            Cache::forget('employee_token:' . $user->id); // 清理缓存
 
-            // 3. Token 有效，执行正常的退出逻辑
-            if ($user) {
-                JWTAuth::invalidate($token); // 加入黑名单
-                Cache::forget('employee_token:' . $user->id); // 清理缓存
-            }
-
-            // 4. 返回退出成功
             return response()->json([
                 'code' => 200,
                 'message' => '登出成功',
@@ -168,6 +157,15 @@ class FmyController
                 'message' => '令牌已过期，请重新登录',
                 'data' => null,
             ], 401);
+
+        } catch (TokenBlacklistedException $e) {
+            // 令牌已在黑名单中，清理缓存并返回登出成功
+            Cache::forget('employee_token:' . auth('employee')->id());
+            return response()->json([
+                'code' => 200,
+                'message' => '登出成功',
+                'data' => null,
+            ]);
 
         } catch (JWTException $e) {
             // 捕获其他 JWT 相关的异常（如解析失败等）
@@ -535,6 +533,19 @@ class FmyController
     {
         $user = request()->user('employee');
 
+        // 中英文角色映射表
+        $roleMap = [
+            '经理' => 'director',
+            '店长' => 'manager',
+            '店员' => 'staff',
+        ];
+
+        // 将前端传来的中文角色转换为英文
+        $inputRole = request()->input('role');
+        if (isset($roleMap[$inputRole])) {
+            request()->merge(['role' => $roleMap[$inputRole]]);
+        }
+
         if ($user->role === 'staff') {
             return response()->json([
                 'code' => 403,
@@ -544,12 +555,14 @@ class FmyController
         }
 
         $allowedRoles = $user->role === 'director' ? ['manager', 'staff'] : ['staff'];
+        // 同时支持中文角色名验证
+        $allowedRoleNames = array_merge($allowedRoles, array_keys(array_intersect($roleMap, $allowedRoles)));
 
         $rules = [
             'name' => 'required|string|max:20|unique:employees,name',
-            'phone' => 'required|string|max:20|unique:employees,phone',
+            'phone' => 'required|regex:/^1[3-9]\d{9}$/|unique:employees,phone',
             'password' => 'required|string|min:6|max:32',
-            'role' => 'required|in:' . implode(',', $allowedRoles),
+            'role' => 'required|in:' . implode(',', $allowedRoleNames),
         ];
 
         if ($user->role === 'director') {
@@ -561,7 +574,7 @@ class FmyController
             'name.max' => '员工姓名不能超过20个字符',
             'name.unique' => '该员工姓名已被使用',
             'phone.required' => '请输入员工手机号',
-            'phone.max' => '手机号不能超过20个字符',
+            'phone.regex' => '手机号格式不正确，请输入有效的11位手机号码（如13812345678）',
             'phone.unique' => '该手机号已被其他员工使用',
             'password.required' => '请设置登录密码',
             'password.min' => '密码长度至少6个字符',
@@ -710,7 +723,12 @@ class FmyController
             ], 400);
         }
 
-        $employee->update(['status' => 'inactive']);
+        // 处理关联数据：将员工关联的库存日志的外键置空（保留历史记录，不级联删除）
+        $employee->submittedStockLogs()->update(['submitter_id' => null]);
+        $employee->approvedStockLogs()->update(['approver_id' => null]);
+
+        // 物理删除员工记录
+        $employee->delete();
 
         $message = '员工已删除';
         if ($employee->role === 'manager') {

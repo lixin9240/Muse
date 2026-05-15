@@ -34,7 +34,18 @@ class SingleSession
 
             $cachedToken = Cache::get('employee_token:' . $user->id);
 
-            if ($cachedToken && $token !== $cachedToken) {
+            if (!$cachedToken) {
+                return response()->json([
+                    'code' => 401,
+                    'message' => '登录已失效，请重新登录',
+                    'data' => [
+                        'reason' => 'session_expired',
+                        'suggestion' => '您的账号已登出或session已过期',
+                    ],
+                ], 401);
+            }
+
+            if ($token !== $cachedToken) {
                 return response()->json([
                     'code' => 401,
                     'message' => '账号已在其他设备登录',

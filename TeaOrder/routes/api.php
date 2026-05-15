@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
     Route::post('login', [FmyController::class, 'login']);
-    Route::post('logout', [FmyController::class, 'logout'])->middleware('auth:employee');
+    Route::post('logout', [FmyController::class, 'logout'])->middleware(['single-session', 'auth:employee']);
 });
 
 Route::middleware(['single-session', 'auth:employee'])->group(function () {
@@ -15,7 +15,7 @@ Route::middleware(['single-session', 'auth:employee'])->group(function () {
     Route::get('orders/{id}', [FmyController::class, 'getOrderDetail']);
 });
 
-Route::prefix('employees')->middleware('auth:employee')->group(function () {
+Route::middleware(['single-session', 'auth:employee'])->prefix('employees')->group(function () {
     Route::post('/', [FmyController::class, 'addEmployee']);
     Route::get('/', [FmyController::class, 'listEmployees']);
     Route::delete('/{employeeId}', [FmyController::class, 'deleteEmployee']);
