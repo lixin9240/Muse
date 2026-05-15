@@ -16,13 +16,6 @@ Route::middleware(['single-session', 'auth:employee'])->group(function () {
 });
 
 
-// 员工管理模块
-Route::prefix('stores')->group(function () {
-    Route::post('{storeId}/employees', [FmyController::class, 'addEmployee']);
-    Route::get('{storeId}/employees', [FmyController::class, 'listEmployees']);
-    Route::delete('{storeId}/employees/{employeeId}', [FmyController::class, 'deleteEmployee']);
-});
-
 // ==================== 会员模块（含QQ邮箱验证）====================
 // 需要店员登录的接口
 Route::middleware(['single-session', 'auth:employee'])->prefix('customers')->group(function () {
