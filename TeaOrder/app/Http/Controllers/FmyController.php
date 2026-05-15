@@ -440,6 +440,10 @@ class FmyController
                 ->where('product_sku_id', $item['product_sku_id'])
                 ->get();
 
+            // 从SKU获取实际的产品ID（用于外键关联）
+            $sku = ProductSku::find($item['product_sku_id']);
+            $actualProductId = $sku ? $sku->product_id : null;
+
             foreach ($materials as $material) {
                 //$deductQty：计算这笔订单总共需要消耗多少原材料
                 $deductQty = $material->quantity * $item['quantity'];
@@ -454,9 +458,11 @@ class FmyController
                     'stock_before' => $material->material->stock + $deductQty,
                     'stock_after' => $material->material->stock,
                     'order_id' => $order->id,
-                    'product_id' => $item['product_sku_id'],
+                    'product_id' => $actualProductId,
                     'status' => 'approved',
                     'submitter_id' => $user->id,
+                    'approver_id' => $user->id,
+                    'approved_at' => now(),
                     'reason' => "订单扣减：{$item['product_name']} × {$item['quantity']}",
                 ]);
             }
@@ -625,6 +631,11 @@ class FmyController
             'role' => $data['role'],
             'status' => 'active',
         ]);
+
+        // 如果新增的是店长，同步更新门店的 manager_id
+        if ($data['role'] === 'manager') {
+            Store::where('id', $targetStoreId)->update(['manager_id' => $employee->id]);
+        }
 
         return response()->json([
             'code' => 200,
