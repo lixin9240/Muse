@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(function () {
     Route::post('login', [FmyController::class, 'login']);
-    Route::post('logout', [FmyController::class, 'logout'])->middleware(['single-session', 'auth:employee']);
+    Route::post('logout', [FmyController::class, 'logout'])->middleware('auth:employee');
 });
 
 Route::middleware(['single-session', 'auth:employee'])->group(function () {
@@ -15,12 +15,14 @@ Route::middleware(['single-session', 'auth:employee'])->group(function () {
     Route::get('orders/{id}', [FmyController::class, 'getOrderDetail']);
 });
 
-Route::middleware(['single-session', 'auth:employee'])->prefix('employees')->group(function () {
-    Route::post('/', [FmyController::class, 'addEmployee']);
-    Route::get('/', [FmyController::class, 'listEmployees']);
-    Route::delete('/{employeeId}', [FmyController::class, 'deleteEmployee']);
-    Route::get('/{employeeId}', [FmyController::class, 'getEmployeeDetail']);
+
+// 员工管理模块
+Route::prefix('stores')->group(function () {
+    Route::post('{storeId}/employees', [FmyController::class, 'addEmployee']);
+    Route::get('{storeId}/employees', [FmyController::class, 'listEmployees']);
+    Route::delete('{storeId}/employees/{employeeId}', [FmyController::class, 'deleteEmployee']);
 });
+
 // ==================== 会员模块（含QQ邮箱验证）====================
 // 需要店员登录的接口
 Route::middleware(['single-session', 'auth:employee'])->prefix('customers')->group(function () {
@@ -43,13 +45,23 @@ Route::middleware(['single-session', 'auth:employee'])->group(function () {
         Route::get('ranking', [WjcController::class, 'ranking']);
         Route::get('members', [WjcController::class, 'members']);
     });
+    
+    // 员工管理模块
+    Route::prefix('stores')->group(function () {
+        Route::post('{storeId}/employees', [FmyController::class, 'addEmployee']);
+        Route::get('{storeId}/employees', [FmyController::class, 'listEmployees']);
+        Route::delete('{storeId}/employees/{employeeId}', [FmyController::class, 'deleteEmployee']);
+    });
 });
-// 门店模块
+
+
+// 门店模块 
 Route::middleware('auth:employee')->prefix('stores')->group(function () {
     Route::post('/', [LXController::class, 'storeStore']);           // 6.1 添加门店
     Route::get('/', [LXController::class, 'indexStore']);            // 6.2 获取门店列表
     Route::put('/{id}', [LXController::class, 'updateStore']);       // 6.3 更新门店信息
 });
+
 
 //文件上传模块（OSS直传）
 Route::middleware('auth:employee')->prefix('upload')->group(function () {
