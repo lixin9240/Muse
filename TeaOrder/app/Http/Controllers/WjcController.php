@@ -2,7 +2,15 @@
 
 namespace App\Http\Controllers;
 
+<<<<<<< HEAD
 use App\Models\{Category, Customer, FileUpload, Material, Order, OrderItem, Product, ProductMaterial, ProductSpec, ProductSku};
+=======
+<<<<<<< Updated upstream
+use App\Models\{Category, Customer, Material, Order, OrderItem, Product, ProductMaterial, ProductSpec};
+=======
+use App\Models\{Category, Customer, FileUpload, Material, Order, OrderItem, Product, ProductMaterial, ProductSpec, ProductSku};
+>>>>>>> Stashed changes
+>>>>>>> 31d7362649f83de6f02b67864e3a3661d0ba34cf
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\{Cache, DB, Storage, Validator, Redis};
@@ -715,6 +723,191 @@ class WjcController
             ]
         ]);
       }
+
+    /**
+     * 上传饮品图片到OSS
+     * POST /api/products/upload-image
+     * 权限：manager（店长）
+     *
+     * 功能：
+     * 1. MIME类型白名单校验
+     * 2. 图片尺寸白名单校验
+     * 3. 文件重命名（随机名+时间戳）
+     * 4. 上传至OSS
+     * 5. 元数据落库
+     */
+    public function uploadProductImage(): JsonResponse
+    {
+        $user = auth('employee')->user();
+        if (!$user || $user->role !== 'manager') {
+            return response()->json([
+                'code' => 4030,
+                'message' => '仅管理员可操作'
+            ], 403);
+        }
+
+        $validator = Validator::make(request()->all(), [
+            'image' => 'required|file',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'code' => 4001,
+                'message' => '参数错误',
+                'errors' => $validator->errors()
+            ], 400);
+        }
+
+        /** @var UploadedFile $file */
+        $file = request()->file('image');
+
+        // 1. 文件大小校验
+        if ($file->getSize() > self::MAX_FILE_SIZE) {
+            return response()->json([
+                'code' => 4002,
+                'message' => '文件大小超过限制',
+                'errors' => ['image' => '图片大小不能超过5MB']
+            ], 400);
+        }
+
+        // 2. MIME类型白名单校验
+        $mimeType = $file->getMimeType();
+        if (!in_array($mimeType, self::ALLOWED_MIME_TYPES)) {
+            return response()->json([
+                'code' => 4003,
+                'message' => '不支持的文件类型',
+                'errors' => [
+                    'image' => '仅支持 ' . implode(', ', self::ALLOWED_MIME_TYPES) . ' 格式的图片'
+                ]
+            ], 400);
+        }
+
+        // 3. 扩展名校验
+        $extension = strtolower($file->getClientOriginalExtension());
+        if (!in_array($extension, self::ALLOWED_EXTENSIONS)) {
+            $extension = match ($mimeType) {
+                'image/jpeg', 'image/jpg' => 'jpg',
+                'image/png' => 'png',
+                'image/webp' => 'webp',
+                default => 'jpg'
+            };
+        }
+
+        // 4. 图片尺寸校验
+        $imageInfo = getimagesize($file->getRealPath());
+        if ($imageInfo === false) {
+            return response()->json([
+                'code' => 4004,
+                'message' => '无法读取图片信息',
+                'errors' => ['image' => '无效的图片文件']
+            ], 400);
+        }
+
+        [$width, $height] = $imageInfo;
+
+        if ($width < self::MIN_WIDTH || $height < self::MIN_HEIGHT) {
+            return response()->json([
+                'code' => 4005,
+                'message' => '图片尺寸过小',
+                'errors' => [
+                    'image' => "图片尺寸不能小于 " . self::MIN_WIDTH . "x" . self::MIN_HEIGHT
+                ]
+            ], 400);
+        }
+
+        if ($width > self::MAX_WIDTH || $height > self::MAX_HEIGHT) {
+            return response()->json([
+                'code' => 4006,
+                'message' => '图片尺寸过大',
+                'errors' => [
+                    'image' => "图片尺寸不能超过 " . self::MAX_WIDTH . "x" . self::MAX_HEIGHT
+                ]
+            ], 400);
+        }
+
+        try {
+            // 5. 生成新的文件名：随机字符串 + 时间戳
+            $datePath = date('Y/m/d');
+            $randomName = Str::random(16) . '_' . time();
+            $newFileName = "{$randomName}.{$extension}";
+            $filePath = "products/{$datePath}/{$newFileName}";
+
+            // 6. 上传到OSS（读取文件内容并调用 write 方法）
+            $fileContents = file_get_contents($file->getRealPath());
+            $uploadSuccess = Storage::disk('oss')->put($filePath, $fileContents);
+            
+            if (!$uploadSuccess) {
+                return response()->json([
+                    'code' => 500,
+                    'message' => '文件上传到OSS失败，请检查配置',
+                    'data' => null
+                ], 500);
+            }
+
+            // 7. 构建完整的OSS访问URL
+            $ossConfig = config('filesystems.disks.oss');
+            $cdnDomain = $ossConfig['cdn_domain'] ?? null;
+            $bucket = $ossConfig['bucket'] ?? '';
+            $endpoint = $ossConfig['endpoint'] ?? '';
+            $useSsl = filter_var($ossConfig['ssl'] ?? true, FILTER_VALIDATE_BOOLEAN);
+
+            if ($cdnDomain) {
+                $scheme = $useSsl ? 'https' : 'http';
+                $fileUrl = rtrim($cdnDomain, '/') . '/' . ltrim($filePath, '/');
+                if (!str_starts_with($fileUrl, 'http://') && !str_starts_with($fileUrl, 'https://')) {
+                    $fileUrl = $scheme . '://' . $fileUrl;
+                }
+            } elseif ($bucket && $endpoint) {
+                $scheme = $useSsl ? 'https' : 'http';
+                $fileUrl = sprintf('%s://%s.%s/%s', $scheme, $bucket, rtrim($endpoint, '/'), ltrim($filePath, '/'));
+            } else {
+                $fileUrl = '/' . $filePath;
+            }
+
+            // 8. 元数据落库
+            $fileUpload = FileUpload::create([
+                'original_name' => $file->getClientOriginalName(),
+                'file_name' => $newFileName,
+                'file_path' => $filePath,
+                'file_url' => $fileUrl,
+                'file_size' => $file->getSize(),
+                'mime_type' => $mimeType,
+                'extension' => $extension,
+                'width' => $width,
+                'height' => $height,
+                'disk' => 'oss',
+                'status' => 'active',
+                'ref_count' => 0,
+                'uploaded_by' => $user->id,
+                'uploaded_at' => now(),
+            ]);
+
+            return response()->json([
+                'code' => 200,
+                'message' => '图片上传成功',
+                'data' => [
+                    'image_id' => $fileUpload->id,
+                    'file_url' => $fileUrl,
+                    'file_name' => $newFileName,
+                    'original_name' => $file->getClientOriginalName(),
+                    'file_size' => $fileUpload->formatted_size,
+                    'dimensions' => [
+                        'width' => $width,
+                        'height' => $height
+                    ],
+                    'mime_type' => $mimeType,
+                    'uploaded_at' => $fileUpload->uploaded_at->format('Y-m-d H:i:s')
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'code' => 5001,
+                'message' => '图片上传失败',
+                'errors' => ['image' => $e->getMessage()]
+            ], 500);
+        }
+    }
 
     /**
      * 上传饮品图片到OSS
