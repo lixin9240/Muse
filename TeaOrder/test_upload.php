@@ -6,7 +6,7 @@ $app->make('Illuminate\Contracts\Console\Kernel')->bootstrap();
 use OSS\OssClient;
 
 $config = config('filesystems.disks.oss');
-$endpoint = 'https://oss-cn-chengdu.aliyuncs.com';
+$endpoint = 'https://oedertea.oss-cn-chengdu.aliyuncs.com';
 
 echo "Testing upload...\n";
 echo "AccessKey: " . substr($config['access_key_id'], 0, 12) . "...\n";
