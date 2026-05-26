@@ -634,7 +634,7 @@ class FmyController
 
         // 如果新增的是店长，同步更新门店的 manager_id
         if ($data['role'] === 'manager') {
-            Store::where('id', $targetStoreId)->update(['manager_id' => $employee->id]);
+            \App\Models\Store::where('id', $targetStoreId)->update(['manager_id' => $employee->id]);
         }
 
         return response()->json([

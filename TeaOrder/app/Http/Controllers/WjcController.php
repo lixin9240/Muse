@@ -521,5 +521,5 @@ class WjcController
                 ]
             ]
         ]);
-    }
+      }
 }
