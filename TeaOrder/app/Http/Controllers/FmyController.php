@@ -489,8 +489,6 @@ class FmyController
             // 清除缓存中的旧 token 记录
             Cache::forget('employee_token:' . $employeeId);
         }
-<<<<<<< Updated upstream
-=======
 
         $data = $validator->validated();
         $targetStoreId = $user->role === 'director' ? $data['store_id'] : $user->store_id;
@@ -690,6 +688,5 @@ class FmyController
                 'updated_at' => $employee->updated_at->toIso8601String(),
             ],
         ]);
->>>>>>> Stashed changes
     }
 }

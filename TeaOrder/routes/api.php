@@ -57,4 +57,3 @@ Route::middleware('auth:employee')->prefix('upload')->group(function () {
     Route::post('/signature', [LXController::class, 'getOssSignature']);  // 获取OSS上传签名
     Route::post('/callback', [LXController::class, 'ossCallback']);       // OSS上传回调
 });
-};
