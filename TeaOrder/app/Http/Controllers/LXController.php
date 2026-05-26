@@ -520,10 +520,18 @@ class LXController extends \Illuminate\Routing\Controller
         $accessKeySecret = env('OSS_ACCESS_KEY_SECRET');
         $bucket = env('OSS_BUCKET');
         $endpoint = env('OSS_ENDPOINT');
-        
+
         if (!$accessKeyId || !$accessKeySecret || !$bucket || !$endpoint) {
             return $this->error('OSS配置不完整，请联系管理员', 500, [], 500);
         }
+
+        $ssl = filter_var(env('OSS_SSL', true), FILTER_VALIDATE_BOOLEAN);
+
+        if ($endpoint && !str_starts_with($endpoint, 'http://') && !str_starts_with($endpoint, 'https://')) {
+            $endpoint = ($ssl ? 'https://' : 'http://') . $endpoint;
+        }
+
+        $cleanEndpoint = preg_replace('#^https?://#', '', $endpoint);
 
         // 构建回调地址（可选）
         $callbackUrl = url('/api/upload/callback');
@@ -561,11 +569,11 @@ class LXController extends \Illuminate\Routing\Controller
         $signature = base64_encode(hash_hmac('sha1', $policyBase64, $accessKeySecret, true));
 
         // 构建上传URL
-        $uploadUrl = "https://{$bucket}.{$endpoint}";
+        $uploadUrl = "https://{$bucket}.{$cleanEndpoint}";
         $cdnDomain = env('OSS_CDN_DOMAIN');
-        $fileUrl = $cdnDomain 
+        $fileUrl = $cdnDomain
             ? "https://{$cdnDomain}/{$objectKey}"
-            : "https://{$bucket}.{$endpoint}/{$objectKey}";
+            : "https://{$bucket}.{$cleanEndpoint}/{$objectKey}";
 
         return $this->success('获取上传签名成功', [
             'access_key_id' => $accessKeyId,

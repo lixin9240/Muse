@@ -43,10 +43,15 @@ class FmyController
                 'errors' => $validator->errors()->first(),
             ], 400);
         }
+<<<<<<< Updated upstream
 
         $credentials = request()->only('name', 'password');
+=======
+        //从当前用户的请求中，精准提取出 name 和 password 这两个字段的值
+        $credentials = (object) request()->only('name', 'password');
+>>>>>>> Stashed changes
 
-        $employee = Employee::where('name', $credentials['name'])->first();
+        $employee = Employee::where('name', $credentials->name)->first();
 
         if (!$employee) {
             return response()->json([
@@ -64,7 +69,7 @@ class FmyController
             ], 403);
         }
 
-        if (!Hash::check($credentials['password'], $employee->password)) {
+        if (!Hash::check($credentials->password, $employee->password)) {
             return response()->json([
                 'code' => 4010,
                 'message' => '密码错误，请重新输入',
@@ -76,7 +81,13 @@ class FmyController
 
         $token = JWTAuth::fromUser($employee);
 
+<<<<<<< Updated upstream
         Cache::put('employee_token:' . $employee->id, $token, config('jwt.ttl'));
+=======
+        //将该员工本次登录生成的全新 Token 存入缓存，使用分钟为单位
+        $ttlMinutes = config('jwt.ttl', 10080); // 7天
+        Cache::put('employee_token:' . $employee->id, $token, now()->addMinutes($ttlMinutes));
+>>>>>>> Stashed changes
 
         return response()->json([
             'code' => 200,
@@ -478,5 +489,207 @@ class FmyController
             // 清除缓存中的旧 token 记录
             Cache::forget('employee_token:' . $employeeId);
         }
+<<<<<<< Updated upstream
+=======
+
+        $data = $validator->validated();
+        $targetStoreId = $user->role === 'director' ? $data['store_id'] : $user->store_id;
+
+        if ($data['role'] === 'manager') {
+            $existingManager = Employee::where('store_id', $targetStoreId)
+                ->where('role', 'manager')
+                ->where('status', 'active')
+                ->exists();
+
+            if ($existingManager) {
+                return response()->json([
+                    'code' => 400,
+                    'message' => '该门店已存在店长，每个门店只能有一个店长',
+                    'data' => null,
+                ], 400);
+            }
+        }
+
+        $employee = Employee::create([
+            'store_id' => $targetStoreId,
+            'name' => $data['name'],
+            'phone' => $data['phone'],
+            'password' => Hash::make($data['password']),
+            'role' => $data['role'],
+            'status' => 'active',
+        ]);
+
+        // 如果新增的是店长，同步更新门店的 manager_id
+        if ($data['role'] === 'manager') {
+            \App\Models\Store::where('id', $targetStoreId)->update(['manager_id' => $employee->id]);
+        }
+
+        return response()->json([
+            'code' => 200,
+            'message' => '员工添加成功',
+            'data' => [
+                'id' => $employee->id,
+                'name' => $employee->name,
+                'phone' => $employee->phone,
+                'role' => $employee->role,
+                'role_name' => match($employee->role) {
+                    'manager' => '店长',
+                    'staff' => '店员',
+                    default => $employee->role,
+                },
+                'store_id' => $employee->store_id,
+                'status' => $employee->status,
+                'created_at' => $employee->created_at->toIso8601String(),
+            ],
+        ]);
+    }
+
+    /**
+     * 获取门店员工列表
+     */
+    public function listEmployees(): JsonResponse
+    {
+        $user = request()->user('employee');
+
+        $query = Employee::where('status', 'active');
+
+        if ($user->role === 'director') {
+            if (request()->has('store_id')) {
+                $query->where('store_id', request('store_id'));
+            }
+        } else {
+            $query->where('store_id', $user->store_id);
+        }
+
+        $employees = $query->get();
+
+        return response()->json([
+            'code' => 200,
+            'message' => '获取成功',
+            'data' => $employees->map(fn($emp) => [
+                'id' => $emp->id,
+                'name' => $emp->name,
+                'store_id' => $emp->store_id,
+            ]),
+        ]);
+    }
+
+    /**
+     * 删除门店员工（软删除）
+     */
+    public function deleteEmployee(int $employeeId): JsonResponse
+    {
+        $user = request()->user('employee');
+
+        if ($user->role === 'staff') {
+            return response()->json([
+                'code' => 403,
+                'message' => '权限不足，仅经理或店长可删除员工',
+                'data' => null,
+            ], 403);
+        }
+
+        $query = Employee::where('id', $employeeId);
+
+        if ($user->role !== 'director') {
+            $query->where('store_id', $user->store_id);
+        }
+
+        $employee = $query->first();
+
+        if (!$employee) {
+            return response()->json([
+                'code' => 404,
+                'message' => '员工不存在',
+                'data' => null,
+            ], 404);
+        }
+
+        if ($user->role === 'manager' && $employee->role !== 'staff') {
+            return response()->json([
+                'code' => 403,
+                'message' => '权限不足，店长只能删除店员',
+                'data' => null,
+            ], 403);
+        }
+
+        if ($employee->id === $user->id) {
+            return response()->json([
+                'code' => 400,
+                'message' => '不能删除自己',
+                'data' => null,
+            ], 400);
+        }
+
+        // 处理关联数据：将员工关联的库存日志的外键置空（保留历史记录，不级联删除）
+        $employee->submittedStockLogs()->update(['submitter_id' => null]);
+        $employee->approvedStockLogs()->update(['approver_id' => null]);
+
+        // 物理删除员工记录
+        $employee->delete();
+
+        $message = '员工已删除';
+        if ($employee->role === 'manager') {
+            $message .= '，该门店暂无店长，请及时分配新店长';
+        }
+
+        return response()->json([
+            'code' => 200,
+            'message' => $message,
+            'data' => null,
+        ]);
+    }
+
+    public function getEmployeeDetail(int $employeeId): JsonResponse
+    {
+        $user = request()->user('employee');
+
+        $employee = Employee::find($employeeId);
+
+        if (!$employee) {
+            return response()->json([
+                'code' => 404,
+                'message' => '员工不存在',
+                'data' => null,
+            ], 404);
+        }
+
+        if ($user->role === 'manager' && $user->store_id !== $employee->store_id) {
+            return response()->json([
+                'code' => 403,
+                'message' => '权限不足，只能查看本店员工',
+                'data' => null,
+            ], 403);
+        }
+
+        if ($user->role === 'staff' && $user->id !== $employeeId) {
+            return response()->json([
+                'code' => 403,
+                'message' => '权限不足，只能查看自己的信息',
+                'data' => null,
+            ], 403);
+        }
+
+        return response()->json([
+            'code' => 200,
+            'message' => '获取成功',
+            'data' => [
+                'id' => $employee->id,
+                'name' => $employee->name,
+                'phone' => $employee->phone,
+                'role' => $employee->role,
+                'role_name' => match($employee->role) {
+                    'director' => '经理',
+                    'manager' => '店长',
+                    'staff' => '店员',
+                    default => $employee->role,
+                },
+                'store_id' => $employee->store_id,
+                'status' => $employee->status,
+                'created_at' => $employee->created_at->toIso8601String(),
+                'updated_at' => $employee->updated_at->toIso8601String(),
+            ],
+        ]);
+>>>>>>> Stashed changes
     }
 }

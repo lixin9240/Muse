@@ -2,17 +2,86 @@
 
 namespace App\Http\Controllers;
 
+<<<<<<< Updated upstream
 use App\Models\{Category, Customer, Material, Order, OrderItem, Product, ProductMaterial, ProductSpec};
+=======
+use App\Models\{Category, Customer, FileUpload, Material, Order, OrderItem, Product, ProductMaterial, ProductSpec, ProductSku};
+>>>>>>> Stashed changes
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\{Cache, DB, Validator, Redis};
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\{Cache, DB, Storage, Validator, Redis};
+use Illuminate\Support\Str;
 use Tymon\JWTAuth\Facades\JWTAuth;
 
 class WjcController
 {
-    //查看饮品列表（点单用）
+    // 允许的图片MIME类型白名单
+    private const ALLOWED_MIME_TYPES = [
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/webp',
+    ];
 
+    // 允许的图片扩展名白名单
+    private const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
+
+    // 最大文件大小 (5MB)
+    private const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+    // 图片尺寸限制 (宽x高)
+    private const MIN_WIDTH = 100;
+    private const MIN_HEIGHT = 100;
+    private const MAX_WIDTH = 4096;
+    private const MAX_HEIGHT = 4096;
+
+    /**
+     * 检查产品库存状态
+     */
+    private function checkProductStockStatus(int $productId): array
+    {
+        // TODO: Implement stock status checking logic
+        return [];
+    }
+
+    /**
+     * 清理产品图片（减少引用计数，ref_count=0时删除OSS文件）
+     */
+    private function cleanupProductImage(string $imageUrl): void
+    {
+        // 根据URL查找文件记录
+        $fileUpload = FileUpload::where('file_url', $imageUrl)->first();
+
+        if (!$fileUpload) {
+            return;
+        }
+
+        // 减少引用计数
+        $newRefCount = max(0, $fileUpload->ref_count - 1);
+        $fileUpload->update(['ref_count' => $newRefCount]);
+
+        // 如果引用计数为0，删除OSS上的物理文件和数据库记录
+        if ($newRefCount === 0) {
+            try {
+                Storage::disk('oss')->delete($fileUpload->file_path);
+                \Illuminate\Support\Facades\Log::info("OSS文件已删除", ['path' => $fileUpload->file_path]);
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error("OSS文件删除失败", [
+                    'path' => $fileUpload->file_path,
+                    'error' => $e->getMessage()
+                ]);
+            }
+
+            $fileUpload->delete();
+        }
+    }
+
+    /**
+     * 查看饮品列表（点单用）
+     */
     public function index(): JsonResponse
     {
+        /** @var int|null $categoryId */
         $categoryId = request()->input('category_id');
         $keyword = request()->input('keyword');
         $groupByCategory = request()->boolean('grouped', false);
@@ -96,7 +165,10 @@ class WjcController
     
     //检查产品库存状态
 
-    private function checkProductStockStatus(int $productId): array
+    /**
+     * 检查产品库存状态（通过SKU关联查询）
+     */
+    private function checkProductStockStatusBySku(int $productId): array
     {
         // 方式1：通过SKU关联查询（推荐，符合当前数据库设计）
         $skuIds = ProductSpec::where('product_id', $productId)->pluck('id');
@@ -195,7 +267,7 @@ class WjcController
             'category_id' => 'required|exists:categories,id',
             'name' => 'required|string|max:100',
             'base_price' => 'required|numeric|min:0',
-            'image_url' => 'nullable|url',
+            'image_id' => 'nullable|exists:file_uploads,id',
             'description' => 'nullable|string|max:500',
             'specs' => 'required|array|min:1',
             'specs.*.name' => 'required|string|max:50',
@@ -214,11 +286,22 @@ class WjcController
         }
 
         return DB::transaction(function () {
+            // 获取图片URL
+            $imageUrl = null;
+            if (request('image_id')) {
+                $fileUpload = \App\Models\FileUpload::find(request('image_id'));
+                if ($fileUpload && $fileUpload->status === 'active') {
+                    $imageUrl = $fileUpload->file_url;
+                    // 标记图片已被使用
+                    $fileUpload->update(['ref_count' => $fileUpload->ref_count + 1]);
+                }
+            }
+
             $product = Product::create([
                 'category_id' => request('category_id'),
                 'name' => request('name'),
                 'base_price' => request('base_price'),
-                'image_url' => request('image_url'),
+                'image_url' => $imageUrl,
                 'description' => request('description'),
                 'status' => 'active',
                 'sort_order' => 0
@@ -250,6 +333,134 @@ class WjcController
                     'id' => $product->id,
                     'name' => $product->name,
                     'status' => $product->status
+                ]
+            ]);
+        });
+    }
+
+    /**
+     * 查看产品详情
+     */
+    public function show($id): JsonResponse
+    {
+        $product = Product::with(['category', 'specs', 'materials.material'])->find($id);
+
+        if (!$product) {
+            return response()->json([
+                'code' => 404,
+                'message' => '产品不存在'
+            ], 404);
+        }
+
+        return response()->json([
+            'code' => 200,
+            'message' => '获取成功',
+            'data' => $product
+        ]);
+    }
+
+    /**
+     * 更新产品（管理员）
+     */
+    public function update($id): JsonResponse
+    {
+        $user = auth('employee')->user();
+        if (!$user || $user->role !== 'manager') {
+            return response()->json([
+                'code' => 403,
+                'message' => '仅管理员可操作'
+            ], 403);
+        }
+
+        $product = Product::find($id);
+        if (!$product) {
+            return response()->json([
+                'code' => 404,
+                'message' => '产品不存在'
+            ], 404);
+        }
+
+        return DB::transaction(function () use ($product) {
+            // 如果更新了图片，清理旧图片
+            if (request()->has('image_id') && request('image_id') !== $product->image_id) {
+                if ($product->image_url) {
+                    $this->cleanupProductImage($product->image_url);
+                }
+
+                // 关联新图片（增加引用计数）
+                if (request('image_id')) {
+                    $newFileUpload = FileUpload::find(request('image_id'));
+                    if ($newFileUpload && $newFileUpload->status === 'active') {
+                        $product->image_url = $newFileUpload->file_url;
+                        $newFileUpload->update(['ref_count' => $newFileUpload->ref_count + 1]);
+                    }
+                } else {
+                    $product->image_url = null;
+                }
+            }
+
+            // 更新其他字段
+            $updateData = request()->only(['name', 'base_price', 'description', 'category_id', 'status']);
+            $product->update(array_filter($updateData));
+
+            // TODO: 更新规格和材料信息
+
+            return response()->json([
+                'code' => 200,
+                'message' => '更新成功',
+                'data' => $product->fresh(['category', 'specs'])
+            ]);
+        });
+    }
+
+    /**
+     * 删除产品（管理员）
+     * 同时清理关联的OSS文件
+     */
+    public function destroy($id): JsonResponse
+    {
+        $user = auth('employee')->user();
+        if (!$user || $user->role !== 'manager') {
+            return response()->json([
+                'code' => 403,
+                'message' => '仅管理员可操作'
+            ], 403);
+        }
+
+        $product = Product::with(['specs', 'skus.materials'])->find($id);
+        if (!$product) {
+            return response()->json([
+                'code' => 404,
+                'message' => '产品不存在'
+            ], 404);
+        }
+
+        return DB::transaction(function () use ($product) {
+            // 1. 清理关联的图片（减少引用计数，必要时删除OSS文件）
+            if ($product->image_url) {
+                $this->cleanupProductImage($product->image_url);
+            }
+
+            // 2. 删除产品规格
+            foreach ($product->specs as $spec) {
+                $spec->delete();
+            }
+
+            // 3. 删除SKU及材料关联
+            foreach ($product->skus as $sku) {
+                $sku->materials()->delete();
+                $sku->delete();
+            }
+
+            // 4. 删除产品本身（软删除）
+            $product->delete();
+
+            return response()->json([
+                'code' => 200,
+                'message' => '删除成功',
+                'data' => [
+                    'product_id' => $product->id,
+                    'oss_files_cleaned' => true
                 ]
             ]);
         });
@@ -507,5 +718,190 @@ class WjcController
                 ]
             ]
         ]);
+    }
+
+    /**
+     * 上传饮品图片到OSS
+     * POST /api/products/upload-image
+     * 权限：manager（店长）
+     *
+     * 功能：
+     * 1. MIME类型白名单校验
+     * 2. 图片尺寸白名单校验
+     * 3. 文件重命名（随机名+时间戳）
+     * 4. 上传至OSS
+     * 5. 元数据落库
+     */
+    public function uploadProductImage(): JsonResponse
+    {
+        $user = auth('employee')->user();
+        if (!$user || $user->role !== 'manager') {
+            return response()->json([
+                'code' => 4030,
+                'message' => '仅管理员可操作'
+            ], 403);
+        }
+
+        $validator = Validator::make(request()->all(), [
+            'image' => 'required|file',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'code' => 4001,
+                'message' => '参数错误',
+                'errors' => $validator->errors()
+            ], 400);
+        }
+
+        /** @var UploadedFile $file */
+        $file = request()->file('image');
+
+        // 1. 文件大小校验
+        if ($file->getSize() > self::MAX_FILE_SIZE) {
+            return response()->json([
+                'code' => 4002,
+                'message' => '文件大小超过限制',
+                'errors' => ['image' => '图片大小不能超过5MB']
+            ], 400);
+        }
+
+        // 2. MIME类型白名单校验
+        $mimeType = $file->getMimeType();
+        if (!in_array($mimeType, self::ALLOWED_MIME_TYPES)) {
+            return response()->json([
+                'code' => 4003,
+                'message' => '不支持的文件类型',
+                'errors' => [
+                    'image' => '仅支持 ' . implode(', ', self::ALLOWED_MIME_TYPES) . ' 格式的图片'
+                ]
+            ], 400);
+        }
+
+        // 3. 扩展名校验
+        $extension = strtolower($file->getClientOriginalExtension());
+        if (!in_array($extension, self::ALLOWED_EXTENSIONS)) {
+            $extension = match ($mimeType) {
+                'image/jpeg', 'image/jpg' => 'jpg',
+                'image/png' => 'png',
+                'image/webp' => 'webp',
+                default => 'jpg'
+            };
+        }
+
+        // 4. 图片尺寸校验
+        $imageInfo = getimagesize($file->getRealPath());
+        if ($imageInfo === false) {
+            return response()->json([
+                'code' => 4004,
+                'message' => '无法读取图片信息',
+                'errors' => ['image' => '无效的图片文件']
+            ], 400);
+        }
+
+        [$width, $height] = $imageInfo;
+
+        if ($width < self::MIN_WIDTH || $height < self::MIN_HEIGHT) {
+            return response()->json([
+                'code' => 4005,
+                'message' => '图片尺寸过小',
+                'errors' => [
+                    'image' => "图片尺寸不能小于 " . self::MIN_WIDTH . "x" . self::MIN_HEIGHT
+                ]
+            ], 400);
+        }
+
+        if ($width > self::MAX_WIDTH || $height > self::MAX_HEIGHT) {
+            return response()->json([
+                'code' => 4006,
+                'message' => '图片尺寸过大',
+                'errors' => [
+                    'image' => "图片尺寸不能超过 " . self::MAX_WIDTH . "x" . self::MAX_HEIGHT
+                ]
+            ], 400);
+        }
+
+        try {
+            // 5. 生成新的文件名：随机字符串 + 时间戳
+            $datePath = date('Y/m/d');
+            $randomName = Str::random(16) . '_' . time();
+            $newFileName = "{$randomName}.{$extension}";
+            $filePath = "products/{$datePath}/{$newFileName}";
+
+            // 6. 上传到OSS（读取文件内容并调用 write 方法）
+            $fileContents = file_get_contents($file->getRealPath());
+            $uploadSuccess = Storage::disk('oss')->put($filePath, $fileContents);
+            
+            if (!$uploadSuccess) {
+                return response()->json([
+                    'code' => 500,
+                    'message' => '文件上传到OSS失败，请检查配置',
+                    'data' => null
+                ], 500);
+            }
+
+            // 7. 构建完整的OSS访问URL
+            $ossConfig = config('filesystems.disks.oss');
+            $cdnDomain = $ossConfig['cdn_domain'] ?? null;
+            $bucket = $ossConfig['bucket'] ?? '';
+            $endpoint = $ossConfig['endpoint'] ?? '';
+            $useSsl = filter_var($ossConfig['ssl'] ?? true, FILTER_VALIDATE_BOOLEAN);
+
+            if ($cdnDomain) {
+                $scheme = $useSsl ? 'https' : 'http';
+                $fileUrl = rtrim($cdnDomain, '/') . '/' . ltrim($filePath, '/');
+                if (!str_starts_with($fileUrl, 'http://') && !str_starts_with($fileUrl, 'https://')) {
+                    $fileUrl = $scheme . '://' . $fileUrl;
+                }
+            } elseif ($bucket && $endpoint) {
+                $scheme = $useSsl ? 'https' : 'http';
+                $fileUrl = sprintf('%s://%s.%s/%s', $scheme, $bucket, rtrim($endpoint, '/'), ltrim($filePath, '/'));
+            } else {
+                $fileUrl = '/' . $filePath;
+            }
+
+            // 8. 元数据落库
+            $fileUpload = FileUpload::create([
+                'original_name' => $file->getClientOriginalName(),
+                'file_name' => $newFileName,
+                'file_path' => $filePath,
+                'file_url' => $fileUrl,
+                'file_size' => $file->getSize(),
+                'mime_type' => $mimeType,
+                'extension' => $extension,
+                'width' => $width,
+                'height' => $height,
+                'disk' => 'oss',
+                'status' => 'active',
+                'ref_count' => 0,
+                'uploaded_by' => $user->id,
+                'uploaded_at' => now(),
+            ]);
+
+            return response()->json([
+                'code' => 200,
+                'message' => '图片上传成功',
+                'data' => [
+                    'image_id' => $fileUpload->id,
+                    'file_url' => $fileUrl,
+                    'file_name' => $newFileName,
+                    'original_name' => $file->getClientOriginalName(),
+                    'file_size' => $fileUpload->formatted_size,
+                    'dimensions' => [
+                        'width' => $width,
+                        'height' => $height
+                    ],
+                    'mime_type' => $mimeType,
+                    'uploaded_at' => $fileUpload->uploaded_at->format('Y-m-d H:i:s')
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'code' => 5001,
+                'message' => '图片上传失败',
+                'errors' => ['image' => $e->getMessage()]
+            ], 500);
+        }
     }
 }
