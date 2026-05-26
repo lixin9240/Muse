@@ -32,7 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(function (\Tymon\JWTAuth\Exceptions\TokenInvalidException $e, $request) {
             return response()->json([
-                'code' => 4010,
+                'code' => 401,
                 'message' => '令牌无效',
                 'data' => null,
             ], 401);
@@ -40,7 +40,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $exceptions->render(function (\Tymon\JWTAuth\Exceptions\TokenExpiredException $e, $request) {
             return response()->json([
-                'code' => 4011,
+                'code' => 401,
                 'message' => '令牌已过期，请重新登录',
                 'data' => null,
             ], 401);
@@ -48,7 +48,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $exceptions->render(function (\Tymon\JWTAuth\Exceptions\TokenBlacklistedException $e, $request) {
             return response()->json([
-                'code' => 4012,
+                'code' => 401,
                 'message' => '令牌已失效，请重新登录',
                 'data' => null,
             ], 401);
@@ -56,7 +56,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $exceptions->render(function (\Tymon\JWTAuth\Exceptions\JWTException $e, $request) {
             return response()->json([
-                'code' => 4010,
+                'code' => 401,
                 'message' => '认证失败：令牌解析错误',
                 'data' => null,
             ], 401);
@@ -64,7 +64,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $exceptions->render(function (\Illuminate\Auth\AuthenticationException $e, $request) {
             return response()->json([
-                'code' => 4010,
+                'code' => 401,
                 'message' => '未登录或令牌无效',
                 'data' => null,
             ], 401);
