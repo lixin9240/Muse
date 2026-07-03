@@ -7,12 +7,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\Response;
 
+//判断当前token是不是最新的
 class SingleSession
 {
     public function handle(Request $request, Closure $next): Response
     {
         try {
-            $token = $request->bearerToken();
+            $token = $request->bearerToken();//从请求头中提取 Bearer Token
 
             if (!$token) {
                 return response()->json([
@@ -22,6 +23,7 @@ class SingleSession
                 ], 401);
             }
 
+            ////使用 employee 守卫来解析 JWT，如果 token 有效，返回的就是数据库 employees 表中的一条记录
             $user = $request->user('employee');
 
             if (!$user) {
@@ -32,6 +34,7 @@ class SingleSession
                 ], 401);
             }
 
+            //获取缓存中这个员工的"最新有效 token"
             $cachedToken = Cache::get('employee_token:' . $user->id);
 
             if (!$cachedToken) {
@@ -64,6 +67,8 @@ class SingleSession
             ], 401);
         }
 
+        //所有校验都通过了，把请求传给下一个中间件或控制器。
+        //$next:当前中间件之后的所有中间件 + 最终的控制器方法
         return $next($request);
     }
 }

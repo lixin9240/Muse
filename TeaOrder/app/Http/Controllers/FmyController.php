@@ -12,6 +12,7 @@ use App\Models\ProductSku;
 use App\Models\ProductSpec;
 use App\Models\StockChangeLog;
 use App\Http\Requests\CreateOrderRequest;
+use App\Models\Store;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -50,6 +51,7 @@ class FmyController
             ], 400);
         }
         //从当前用户的请求中，精准提取出 name 和 password 这两个字段的值
+        //request() 是 Laravel 框架中的 全局辅助函数 ，用于获取当前的 HTTP 请求对象。
         $credentials = request()->only('name', 'password');
 
         $employee = Employee::where('name', $credentials['name'])->first();
@@ -108,8 +110,8 @@ class FmyController
 
     private function invalidateOldTokens(int $employeeId): void
     {    //获取旧 Token
-        //生成了一个针对当前员工的唯一标识（employee_token:1001），确保系统能精准定位到该员工的数据。
-        $oldToken = Cache::get('employee_token:' . $employeeId);
+        //生成了一个针对当前员工的唯一标识（缓存键：employee_token:1），确保系统能精准定位到该员工的数据。
+        $oldToken = Cache::get('employee_token:' . $employeeId);//获取缓存键为employee_token:1的缓存值（旧token）
 
 
         //setToken是JWT认证库中的一个核心方法，它的作用是将指定的Token字符串手动加载到 JWT 的处理对象中
@@ -130,6 +132,7 @@ class FmyController
     {
         try {
             // 通过 auth 获取当前已认证的用户（由 auth:employee 中间件保证）
+            //告诉系统使用 "员工守卫 (employee guard)" 来验证身份
             $user = auth('employee')->user();
 
             // 使当前 token 失效（从请求头获取）
@@ -142,7 +145,9 @@ class FmyController
                 'data' => null,
             ]);
 
-        } catch (TokenInvalidException $e) {
+        }
+        //$e:当 try 里的代码出错时，PHP 会自动创建一个异常对象，赋值给 $e。
+        catch (TokenInvalidException $e) {
             // 捕获令牌无效异常（如被篡改、格式错误）
             return response()->json([
                 'code' => 401,
@@ -177,11 +182,13 @@ class FmyController
         }
     }
 
-    //$request：依赖注入与对象实例
+    //$request：http请求对象
     //把已经通过验证的 CreateOrderRequest 对象，赋值给 $request 变量，传入方法中。
     public function createOrder(CreateOrderRequest $request): JsonResponse
     {
         //获取当前已登录的“员工（employee）”用户信息。
+        //用的employee守卫就根据jwt获取token来识别用户然后从数据库中的employees表中查询
+        //->user():返回当前通过 'employee' 这个 Guard 认证的用户模型实例
         $user = auth('employee')->user();
         if (!$user) {
             return response()->json([
@@ -191,7 +198,7 @@ class FmyController
             ], 401);
         }
 
-        //根据传过来的 customer_id，去 customers 数据表中查找并返回对应的客户信息。
+        //只获取请求中的 customer_id，去 customers 数据表中查找并返回对应的客户信息。
         $customer = Customer::find($request->input('customer_id'));
         //从当前的请求数据中，提取出名为 items 的字段值，并赋值给变量 $items。
         $items = $request->input('items');
@@ -317,10 +324,12 @@ class FmyController
                 'remark' => $remark,
             ]);
 
+            //array_merge() 是 PHP 的一个内置函数，它的作用是把两个或多个数组合并成一个。
             foreach ($orderItems as $item) {
                 OrderItem::create(array_merge($item, ['order_id' => $order->id]));
             }
 
+            //扣减原材料库存并记录流水
             $this->deductStock($orderItems, $user, $order);
 
             $oldLevel = $customer->level;
@@ -414,8 +423,9 @@ class FmyController
                 ->get();
 
             foreach ($materials as $material) {
+                //$material->quantity：一杯所需原料，$item['quantity']：总的杯数
                 $neededQty = $material->quantity * $item['quantity'];
-                $currentStock = $material->material->stock;
+                $currentStock = $material->material->stock;//取出库存
 
                 //unit:单位
                 if ($currentStock < $neededQty) {
@@ -560,8 +570,10 @@ class FmyController
             ], 403);
         }
 
+        //如果用户是总监，变量 $allowedRoles 就会被赋值为包含 'manager'（店长）和 'staff'（店员）的数组。
         $allowedRoles = $user->role === 'director' ? ['manager', 'staff'] : ['staff'];
         // 同时支持中文角色名验证
+        //array_keys 的作用是获取数组的所有键名。
         $allowedRoleNames = array_merge($allowedRoles, array_keys(array_intersect($roleMap, $allowedRoles)));
 
         $rules = [
@@ -593,6 +605,7 @@ class FmyController
 
         if ($validator->fails()) {
             $missingFields = [];
+            //当表单验证失败时，把所有验证未通过的字段名（field）提取出来，收集到一个新的数组 $missingFields 中。
             foreach ($validator->errors()->toArray() as $field => $messages) {
                 $missingFields[] = $field;
             }
@@ -612,7 +625,7 @@ class FmyController
             $existingManager = Employee::where('store_id', $targetStoreId)
                 ->where('role', 'manager')
                 ->where('status', 'active')
-                ->exists();
+                ->exists();//判断数据库查询是否至少存在一条符合条件的记录。
 
             if ($existingManager) {
                 return response()->json([
@@ -660,26 +673,45 @@ class FmyController
     /**
      * 获取门店员工列表
      */
-    public function listEmployees(): JsonResponse
+    public function listEmployees(int $storeId): JsonResponse
     {
         $user = request()->user('employee');
+
+        if (!$user) {
+            return response()->json([
+                'code' => 401,
+                'message' => '未授权',
+                'data' => null,
+            ], 401);
+        }
 
         $query = Employee::where('status', 'active');
 
         if ($user->role === 'director') {
+            // director：可按请求参数筛选，否则使用路由参数$storeId中的门店ID
             if (request()->has('store_id')) {
                 $query->where('store_id', request('store_id'));
+            } else {
+                $query->where('store_id', $storeId);
             }
         } else {
+            // 非director：只能查看自己门店的员工，且必须与路由门店匹配
+            if ($user->store_id != $storeId) {
+                return response()->json([
+                    'code' => 403,
+                    'message' => '无权查看其他门店员工',
+                    'data' => null,
+                ], 403);
+            }
             $query->where('store_id', $user->store_id);
         }
 
-        $employees = $query->get();
+        $employees = $query->get();//根据之前设定的条件，去数据库把符合要求的记录全部取回来
 
         return response()->json([
             'code' => 200,
             'message' => '获取成功',
-            'data' => $employees->map(fn($emp) => [
+            'data' => $employees->map(fn($emp) => [//fn($emp):接收当前遍历到的员工对象作为参数 $emp，并返回一个包含特定字段的新数组。
                 'id' => $emp->id,
                 'name' => $emp->name,
                 'store_id' => $emp->store_id,
@@ -688,16 +720,33 @@ class FmyController
     }
 
     /**
-     * 删除门店员工（软删除）
+     * 删除门店员工（物理删除，关联日志外键置空保留历史）
      */
-    public function deleteEmployee(int $employeeId): JsonResponse
+    public function deleteEmployee(int $storeId, int $employeeId): JsonResponse
     {
         $user = request()->user('employee');
+
+        if (!$user) {
+            return response()->json([
+                'code' => 401,
+                'message' => '未授权',
+                'data' => null,
+            ], 401);
+        }
 
         if ($user->role === 'staff') {
             return response()->json([
                 'code' => 403,
                 'message' => '权限不足，仅经理或店长可删除员工',
+                'data' => null,
+            ], 403);
+        }
+
+        // 非 director 校验路由门店与用户门店匹配，防止越权操作其他门店
+        if ($user->role !== 'director' && $user->store_id != $storeId) {
+            return response()->json([
+                'code' => 403,
+                'message' => '无权操作其他门店',
                 'data' => null,
             ], 403);
         }
@@ -753,11 +802,34 @@ class FmyController
         ]);
     }
 
-    public function getEmployeeDetail(int $employeeId): JsonResponse
+    public function getEmployeeDetail(int $storeId, int $employeeId): JsonResponse
     {
         $user = request()->user('employee');
 
-        $employee = Employee::find($employeeId);
+        if (!$user) {
+            return response()->json([
+                'code' => 401,
+                'message' => '未授权',
+                'data' => null,
+            ], 401);
+        }
+
+        // 非 director 校验路由门店与用户门店匹配，防止越权查看其他门店员工
+        if ($user->role !== 'director' && $user->store_id != $storeId) {
+            return response()->json([
+                'code' => 403,
+                'message' => '无权操作其他门店',
+                'data' => null,
+            ], 403);
+        }
+
+        $employee = Employee::where('id', $employeeId);
+
+        if ($user->role !== 'director') {
+            $employee->where('store_id', $user->store_id);
+        }
+
+        $employee = $employee->first();
 
         if (!$employee) {
             return response()->json([
