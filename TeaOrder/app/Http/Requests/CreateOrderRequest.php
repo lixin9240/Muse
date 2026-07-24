@@ -50,6 +50,7 @@ class CreateOrderRequest extends FormRequest
 
     public function attributes(): array
     {
+        //数据验证失败时，让报错信息中的字段名从原本的英文（如 customer_id）变成人类更容易读懂的中文（如 顾客ID）。
         return [
             'customer_id' => '顾客ID',
             'items' => '商品列表',
@@ -62,17 +63,17 @@ class CreateOrderRequest extends FormRequest
 
     protected function failedValidation(Validator $validator)
     {
-        $errors = $validator->errors()->toArray();
+        $errors = $validator->errors()->toArray();// Laravel 默认的错误集合
 
         $formattedErrors = [];
         foreach ($errors as $field => $messages) {
             $formattedErrors[] = [
                 'field' => $field,
-                'message' => $messages[0],
+                'message' => $messages[0],//只取该字段的第一条报错信息
             ];
         }
 
-        throw new ValidationException(
+        throw new ValidationException(//抛出异常并终止程序
             $validator,
             response()->json([
                 'code' => 400,
@@ -100,7 +101,7 @@ class CreateOrderRequest extends FormRequest
         foreach ($items as $index => $item) {
             $position = $index + 1;
 
-            if (!is_array($item)) {
+            if (!is_array($item)) {//如果当前的 $item 不是一个数组（比如前端传了个字符串或数字进来），直接抛出格式错误
                 $validator->errors()->add(
                     "items.{$index}",
                     "第{$position}个商品格式错误"
