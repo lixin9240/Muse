@@ -15,14 +15,6 @@ Route::middleware(['single-session', 'auth:employee'])->group(function () {
     Route::get('orders/{id}', [FmyController::class, 'getOrderDetail']);
 });
 
-
-// 员工管理模块
-Route::prefix('stores')->group(function () {
-    Route::post('{storeId}/employees', [FmyController::class, 'addEmployee']);
-    Route::get('{storeId}/employees', [FmyController::class, 'listEmployees']);
-    Route::delete('{storeId}/employees/{employeeId}', [FmyController::class, 'deleteEmployee']);
-});
-
 // ==================== 会员模块（含QQ邮箱验证）====================
 // 需要店员登录的接口
 Route::middleware(['single-session', 'auth:employee'])->prefix('customers')->group(function () {
@@ -38,14 +30,13 @@ Route::middleware(['single-session', 'auth:employee'])->group(function () {
     // 菜单模块
     Route::get('products', [WjcController::class, 'index']);
     Route::post('products', [WjcController::class, 'store'])->middleware('role:manager');
-
+    
     // 数据看板模块
     Route::prefix('dashboard')->group(function () {
         Route::get('today', [WjcController::class, 'today']);
         Route::get('ranking', [WjcController::class, 'ranking']);
         Route::get('members', [WjcController::class, 'members']);
     });
-    
     // 员工管理模块
     Route::prefix('stores')->group(function () {
         Route::post('{storeId}/employees', [FmyController::class, 'addEmployee']);
@@ -54,14 +45,12 @@ Route::middleware(['single-session', 'auth:employee'])->group(function () {
     });
 });
 
-
-// 门店模块 
+// 门店模块
 Route::middleware('auth:employee')->prefix('stores')->group(function () {
-    Route::post('/', [LXController::class, 'storeStore']);           // 6.1 添加门店
-    Route::get('/', [LXController::class, 'indexStore']);            // 6.2 获取门店列表
-    Route::put('/{id}', [LXController::class, 'updateStore']);       // 6.3 更新门店信息
+    Route::post('/', [LXController::class, 'storeStore']);        // 6.1 添加门店
+    Route::get('/', [LXController::class, 'indexStore']);         // 6.2 获取门店列表
+    Route::put('/{id}', [LXController::class, 'updateStore']);    // 6.3 更新门店信息
 });
-
 
 //文件上传模块（OSS直传）
 Route::middleware('auth:employee')->prefix('upload')->group(function () {
